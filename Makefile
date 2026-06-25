@@ -20,6 +20,12 @@ SRC := src/main.c src/game.c src/input.c src/render.c src/sound.c \
 # Shared standard/warning flags and vendored-header include paths.
 CFLAGS_COMMON := -std=c99 -Wall -Wextra -I$(MINIH264_INC) -I$(MINIMP4_INC) -Isrc
 
+# Release version: a single integer. The release workflow passes
+# OPENBLOCKS_VERSION explicitly; for local `make dist` it derives from the
+# latest release-N tag (or 0 if there are none). Only used to name archives.
+OPENBLOCKS_VERSION ?= $(shell git tag --list 'release-*' 2>/dev/null | sed -n 's/^release-\([1-9][0-9]*\)$$/\1/p' | sort -n | tail -1 | grep . || echo 0)
+VERSION_SLUG       := build-$(OPENBLOCKS_VERSION)
+
 # ---------------------------------------------------------------------------
 # Linux (dev + release, static linking)
 # ---------------------------------------------------------------------------
@@ -127,13 +133,48 @@ $(TEST_BIN): tests/test_game.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c -o $(TEST_BIN)
 
 # ---------------------------------------------------------------------------
+# Distribution archives. Each dist-<platform> stages the platform binary plus
+# README.md + LICENSE + NOTICE and packages it under dist/. Driven by the
+# release workflow; runnable locally for the platforms you can build.
+# ---------------------------------------------------------------------------
+DIST    := dist
+STAGING := build/staging
+DOCS    := README.md LICENSE NOTICE
+
+dist: dist-linux dist-windows dist-mac
+
+dist-linux: release
+	@rm -rf $(STAGING)/linux && mkdir -p $(STAGING)/linux/openblocks-$(VERSION_SLUG) $(DIST)
+	cp $(OUT_RELEASE) $(STAGING)/linux/openblocks-$(VERSION_SLUG)/openblocks
+	cp $(DOCS) $(STAGING)/linux/openblocks-$(VERSION_SLUG)/
+	(cd $(STAGING)/linux && tar -czf ../../../$(DIST)/openblocks-$(VERSION_SLUG)-linux-x86_64.tar.gz openblocks-$(VERSION_SLUG))
+
+dist-windows: $(OUT_WIN64) $(OUT_WIN32)
+	@rm -rf $(STAGING)/win && mkdir -p $(DIST) \
+	    $(STAGING)/win/openblocks-$(VERSION_SLUG)-x64 \
+	    $(STAGING)/win/openblocks-$(VERSION_SLUG)-x86
+	cp $(OUT_WIN64) $(STAGING)/win/openblocks-$(VERSION_SLUG)-x64/openblocks.exe
+	cp $(DOCS) $(STAGING)/win/openblocks-$(VERSION_SLUG)-x64/
+	cp $(OUT_WIN32) $(STAGING)/win/openblocks-$(VERSION_SLUG)-x86/openblocks.exe
+	cp $(DOCS) $(STAGING)/win/openblocks-$(VERSION_SLUG)-x86/
+	(cd $(STAGING)/win && zip -qr ../../../$(DIST)/openblocks-$(VERSION_SLUG)-windows-x64.zip openblocks-$(VERSION_SLUG)-x64)
+	(cd $(STAGING)/win && zip -qr ../../../$(DIST)/openblocks-$(VERSION_SLUG)-windows-x86.zip openblocks-$(VERSION_SLUG)-x86)
+
+dist-mac: $(OUT_MAC)
+	@rm -rf $(STAGING)/mac && mkdir -p $(STAGING)/mac/openblocks-$(VERSION_SLUG) $(DIST)
+	cp $(OUT_MAC) $(STAGING)/mac/openblocks-$(VERSION_SLUG)/openblocks
+	codesign --force --sign - $(STAGING)/mac/openblocks-$(VERSION_SLUG)/openblocks
+	cp $(DOCS) $(STAGING)/mac/openblocks-$(VERSION_SLUG)/
+	(cd $(STAGING)/mac && zip -qr ../../../$(DIST)/openblocks-$(VERSION_SLUG)-macos-universal.zip openblocks-$(VERSION_SLUG))
+
+# ---------------------------------------------------------------------------
 $(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR) $(MAC_OBJ_DIR):
 	mkdir -p $@
 
 clean:
-	rm -rf build
+	rm -rf build dist
 
 # Pull in auto-generated header dependencies (ignored if not yet present).
 -include $(OBJ:.o=.d) $(REL_OBJ:.o=.d) $(WIN64_OBJ:.o=.d) $(WIN32_OBJ:.o=.d) $(MAC_OBJ:.o=.d)
 
-.PHONY: all run release run-release windows mac test clean
+.PHONY: all run release run-release windows mac test dist dist-linux dist-windows dist-mac clean
