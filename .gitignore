@@ -6,6 +6,7 @@ build/
 *.so
 *.a
 third_party/raylib-install*/
+third_party/raylib/
 .vscode/
 *.swp
 *.swo

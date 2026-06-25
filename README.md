@@ -36,6 +36,22 @@ This produces:
 - `build/openblocks-x64.exe` (64-bit)
 - `build/openblocks-x86.exe` (32-bit)
 
+### macOS
+
+On a Mac (with the Xcode command-line tools), build a universal
+(arm64 + x86_64) binary:
+
+```bash
+make mac    # -> build/openblocks-mac
+```
+
+## Continuous Integration
+
+Every pull request to `main` builds openblocks on Linux, Windows (mingw-w64
+cross-compile, x64 + x86), and macOS (universal) via GitHub Actions
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). All three must pass
+before a PR can merge.
+
 ## Controls
 
 - **Left / Right** (arrows or A / D): move
@@ -72,18 +88,25 @@ below real-time while recording; the video stays exactly one frame per frame.
 
 ## Dependencies
 
-- A C99 compiler (GCC or compatible)
-- [Raylib](https://github.com/raysan5/raylib), built as a static library — the
-  install directories are **not** checked in, so build them before compiling:
-  - `third_party/raylib-install` (Linux)
-  - `third_party/raylib-install-win64` / `-win32` (Windows cross-builds)
+- A C99 compiler (GCC or Clang)
+- [Raylib](https://github.com/raysan5/raylib) 6.0, built as a static library.
+  The install directories are gitignored, so build raylib once on a fresh clone
+  with the matching helper script:
+  - Linux: `./scripts/build_raylib_linux.sh` → `third_party/raylib-install`
+  - Windows cross (mingw-w64): `./scripts/build_raylib_windows.sh` →
+    `third_party/raylib-install-win64` and `-win32`
+  - macOS (universal): `./scripts/build_raylib_mac.sh` →
+    `third_party/raylib-install-mac`
 - For the Windows cross-compile: the mingw-w64 toolchain
 
-Build raylib as a static library from source and install its headers and
-`libraylib.a` under `third_party/raylib-install/{include,lib}` (see the raylib
-documentation for platform-specific build instructions). Repeat with the
-mingw-w64 toolchain into `third_party/raylib-install-win64` and `-win32` for the
-Windows targets.
+Each script clones raylib (pinned via `RAYLIB_TAG`, default `6.0`) and installs
+its headers and `libraylib.a` into the path the Makefile expects. CI runs the
+same scripts before each platform build.
+
+The MP4 recorder uses two vendored single-header libraries, both public domain
+(CC0): [minih264](third_party/minih264) (H.264 encoder) and
+[minimp4](third_party/minimp4) (MP4 muxer). No external tools or shared
+libraries are required.
 
 The MP4 recorder uses two vendored single-header libraries, both public domain
 (CC0): [minih264](third_party/minih264) (H.264 encoder) and
