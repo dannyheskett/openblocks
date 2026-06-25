@@ -115,6 +115,18 @@ $(OUT_MAC): $(MAC_OBJ)
 	$(MAC_CC) $(MAC_OBJ) -o $@ $(MAC_LDFLAGS)
 
 # ---------------------------------------------------------------------------
+# Unit tests (game logic only — no raylib/window needed). The test TU includes
+# game.c directly to reach its file-static helpers.
+# ---------------------------------------------------------------------------
+TEST_BIN := build/test_game
+
+test: $(TEST_BIN)
+	./$(TEST_BIN)
+
+$(TEST_BIN): tests/test_game.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c -o $(TEST_BIN)
+
+# ---------------------------------------------------------------------------
 $(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR) $(MAC_OBJ_DIR):
 	mkdir -p $@
 
@@ -124,4 +136,4 @@ clean:
 # Pull in auto-generated header dependencies (ignored if not yet present).
 -include $(OBJ:.o=.d) $(REL_OBJ:.o=.d) $(WIN64_OBJ:.o=.d) $(WIN32_OBJ:.o=.d) $(MAC_OBJ:.o=.d)
 
-.PHONY: all run release run-release windows mac clean
+.PHONY: all run release run-release windows mac test clean
