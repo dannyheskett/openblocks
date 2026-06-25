@@ -61,6 +61,11 @@ cross-compile, x64 + x86), and macOS (universal) via GitHub Actions
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and runs `make test`
 on the Linux job. All checks must pass before a PR can merge.
 
+Tagged releases (`release-N`) are cut by the
+[`release`](.github/workflows/release.yml) workflow (manual dispatch), which
+builds all three platforms and attaches prebuilt Linux, Windows (x64/x86), and
+macOS (universal) archives to the GitHub Release.
+
 ## Controls
 
 - **Left / Right** (arrows or A / D): move
