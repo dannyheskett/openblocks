@@ -1,16 +1,26 @@
 name: release
 
-# Manually triggered from the Actions tab ("Run workflow"). Auto-picks the next
-# sequential release-N tag, builds Linux x86_64, Windows x64+x86, and macOS
-# universal binaries, packages each (binary + README + LICENSE + NOTICE) into an
-# archive, and publishes a GitHub Release with the archives + auto notes.
+# Runs automatically on every push to main (i.e. when a PR merges), and can also
+# be triggered manually from the Actions tab. Auto-picks the next sequential
+# release-N tag, builds Linux x86_64, Windows x64+x86, and macOS universal
+# binaries, packages each (binary + README + LICENSE + NOTICE) into an archive,
+# and publishes a GitHub Release with the archives + auto notes.
 #
-# The tag is created in the publish job AFTER all builds succeed, so a failed
-# build leaves N unused and the next dispatch reuses it. The dispatched commit
-# SHA is captured up front and used everywhere, so a mid-build push to main does
-# not change what gets tagged.
+# Docs-only merges are skipped (they don't change the binaries). The tag is
+# created in the publish job AFTER all builds succeed, so a failed build leaves N
+# unused and the next run reuses it. The triggering commit SHA is captured up
+# front and used everywhere, so a later push to main does not change what gets
+# tagged. Pushing the release-N tag does not retrigger this workflow (the trigger
+# is branch pushes only).
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.editorconfig'
+      - 'LICENSE'
+      - 'NOTICE'
   workflow_dispatch: {}
 
 permissions:
