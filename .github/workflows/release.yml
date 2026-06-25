@@ -28,7 +28,7 @@ jobs:
       version: ${{ steps.next.outputs.version }}
       sha: ${{ steps.next.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: next
@@ -46,7 +46,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Linux + mingw deps
         run: |
           sudo apt-get update
@@ -72,7 +72,7 @@ jobs:
     needs: prepare
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build raylib (universal arm64 + x86_64)
         run: ./scripts/build_raylib_mac.sh
       - name: Package macOS archive
@@ -87,7 +87,7 @@ jobs:
     needs: [prepare, build-linux-windows, build-mac]
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Download all build artifacts
