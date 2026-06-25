@@ -91,13 +91,37 @@ $(OUT_WIN32): $(WIN32_OBJ)
 	$(WIN32_CC) $(WIN32_OBJ) -o $@ -L$(RAYLIB_WIN32)/lib $(WIN_LDFLAGS)
 
 # ---------------------------------------------------------------------------
-$(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR):
+# macOS build (universal arm64 + x86_64). CI-only: needs a macOS runner with an
+# Xcode toolchain. raylib links several system frameworks for windowing, input,
+# and OpenGL.
+# ---------------------------------------------------------------------------
+RAYLIB_MAC  := third_party/raylib-install-mac
+MAC_CC      := clang
+MAC_ARCHES  := -arch arm64 -arch x86_64
+MAC_CFLAGS  := $(CFLAGS_COMMON) -O2 $(MAC_ARCHES) -I$(RAYLIB_MAC)/include
+MAC_LDFLAGS := $(MAC_ARCHES) -L$(RAYLIB_MAC)/lib -lraylib -lpthread \
+               -framework Cocoa -framework IOKit -framework CoreVideo -framework OpenGL
+
+MAC_OBJ_DIR := build/obj-mac
+MAC_OBJ := $(SRC:src/%.c=$(MAC_OBJ_DIR)/%.o)
+OUT_MAC := build/openblocks-mac
+
+mac: $(OUT_MAC)
+
+$(MAC_OBJ_DIR)/%.o: src/%.c | $(MAC_OBJ_DIR)
+	$(MAC_CC) $(MAC_CFLAGS) -MMD -MP -c $< -o $@
+
+$(OUT_MAC): $(MAC_OBJ)
+	$(MAC_CC) $(MAC_OBJ) -o $@ $(MAC_LDFLAGS)
+
+# ---------------------------------------------------------------------------
+$(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR) $(MAC_OBJ_DIR):
 	mkdir -p $@
 
 clean:
 	rm -rf build
 
 # Pull in auto-generated header dependencies (ignored if not yet present).
--include $(OBJ:.o=.d) $(REL_OBJ:.o=.d) $(WIN64_OBJ:.o=.d) $(WIN32_OBJ:.o=.d)
+-include $(OBJ:.o=.d) $(REL_OBJ:.o=.d) $(WIN64_OBJ:.o=.d) $(WIN32_OBJ:.o=.d) $(MAC_OBJ:.o=.d)
 
-.PHONY: all run release run-release windows clean
+.PHONY: all run release run-release windows mac clean
