@@ -25,7 +25,7 @@ jobs:
     name: linux (build)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install raylib build + runtime deps
         run: |
           sudo apt-get update
@@ -43,7 +43,7 @@ jobs:
     name: windows cross-compile (x64 + x86)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install mingw-w64
         run: |
           sudo apt-get update
@@ -58,7 +58,7 @@ jobs:
     name: macOS universal build
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build raylib (universal arm64 + x86_64)
         run: ./scripts/build_raylib_mac.sh
       - name: Build universal binary
