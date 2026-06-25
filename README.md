@@ -45,12 +45,21 @@ On a Mac (with the Xcode command-line tools), build a universal
 make mac    # -> build/openblocks-mac
 ```
 
+## Tests
+
+Unit tests cover the game logic (scoring, the gravity curve, and line
+detection/collapse) with no raylib or window required:
+
+```bash
+make test
+```
+
 ## Continuous Integration
 
 Every pull request to `main` builds openblocks on Linux, Windows (mingw-w64
 cross-compile, x64 + x86), and macOS (universal) via GitHub Actions
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). All three must pass
-before a PR can merge.
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and runs `make test`
+on the Linux job. All checks must pass before a PR can merge.
 
 ## Controls
 
