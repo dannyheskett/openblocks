@@ -5,11 +5,23 @@
 #define CELL_SIZE 20
 #define BORDER_WIDTH 2
 
-#ifndef OB_TOUCH
-// Desktop renders to a fixed off-screen canvas that present() integer-scales and
-// letterboxes into the window. Android renders straight to the screen instead.
+#ifdef OB_LANDSCAPE
+// The landscape renderer draws to a fixed off-screen canvas that present()
+// integer-scales and letterboxes into the window.
 static int current_scale = 1;
 static RenderTexture2D canvas;
+#endif
+
+// render_use_portrait() reports the active renderer. Native builds have exactly
+// one (compile-time constant); the web build has both and picks at runtime.
+#if defined(OB_RUNTIME_RENDERER)
+static bool s_portrait_mode = false;
+void render_set_portrait(bool portrait) { s_portrait_mode = portrait; }
+bool render_use_portrait(void) { return s_portrait_mode; }
+#elif defined(OB_PORTRAIT)
+bool render_use_portrait(void) { return true; }   // Android: portrait only
+#else
+bool render_use_portrait(void) { return false; }  // desktop native: landscape only
 #endif
 
 // Repeated playfield colours, named for clarity.
@@ -117,13 +129,13 @@ void render_init(void) {
     SetExitKey(KEY_NULL); // Escape is handled by the game, not the window
     SetTargetFPS(60);
 
-#ifndef OB_TOUCH
+#ifdef OB_LANDSCAPE
     canvas = LoadRenderTexture(BASE_WIDTH, BASE_HEIGHT);
 #endif
 }
 
 void render_toggle_fullscreen(void) {
-#ifdef OB_TOUCH
+#ifdef PLATFORM_ANDROID
     // Android apps are always fullscreen; nothing to toggle.
     (void)0;
 }
@@ -142,13 +154,13 @@ void render_toggle_fullscreen(void) {
 #endif // PLATFORM_ANDROID
 
 void render_cleanup(void) {
-#ifndef OB_TOUCH
+#ifdef OB_LANDSCAPE
     UnloadRenderTexture(canvas);
 #endif
     CloseWindow();
 }
 
-#ifndef OB_TOUCH
+#ifdef OB_LANDSCAPE
 static int calculate_scale(void) {
     int window_w = GetScreenWidth();
     int window_h = GetScreenHeight();
@@ -190,25 +202,20 @@ static void present(void) {
 
     EndDrawing();
 }
-#endif // PLATFORM_ANDROID: calculate_scale/present are desktop-only
+#endif // OB_LANDSCAPE: canvas / calculate_scale / present
 
-#ifdef OB_TOUCH
+#ifdef OB_PORTRAIT
 
-// Android renders directly at the device's real resolution (no fixed canvas,
-// no letterbox): the title bar is pinned to the top, a proportional HUD sits
-// below it, and the 10x20 playfield uses the largest SQUARE cell that fits the
-// remaining space, centered. Everything derives from the live screen size, so
-// the layout fills any phone. A row of on-screen buttons sits in a bottom
-// control bar (draw_touch_buttons / render_touch_button_rects below).
+// The portrait renderer draws directly at the device's real resolution (no
+// fixed canvas, no letterbox): the title bar is pinned to the top, a
+// proportional HUD sits below it, and the 10x20 playfield uses the largest
+// SQUARE cell that fits the remaining space, centered. Everything derives from
+// the live screen size, so the layout fills any phone. A row of on-screen
+// buttons sits in a bottom control bar (draw_touch_buttons / render_touch_
+// button_rects below).
 
 // Height of the bottom on-screen control bar (a bit slimmer than a sixth).
 static int control_bar_h(int h) { return h / 7; }
-
-// Whether to draw the on-screen buttons and reserve the control bar. On by
-// default (Android); the web build disables it for desktop browsers.
-static bool s_touch_controls = true;
-void render_set_touch_controls(bool show) { s_touch_controls = show; }
-bool render_touch_controls_shown(void) { return s_touch_controls; }
 
 void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
     int w = GetScreenWidth(), h = GetScreenHeight();
@@ -234,11 +241,37 @@ void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
     }
 }
 
+// The menu/pause button sits at the right end of the top title bar.
+void render_menu_button_rect(Rectangle* out) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int th = h / 22;                 // title bar height
+    int size = th * 4 / 5;
+    int pad  = (th - size) / 2;
+    *out = (Rectangle){ (float)(w - size - th), (float)pad, (float)size, (float)size };
+}
+
+// Draw the menu/pause button: a small rounded key with a 3-bar "menu" glyph.
+static void draw_menu_button(void) {
+    Rectangle r;
+    render_menu_button_rect(&r);
+    int touches = GetTouchPointCount();
+    bool pressed = false;
+    for (int t = 0; t < touches; t++) {
+        if (CheckCollisionPointRec(GetTouchPosition(t), r)) { pressed = true; break; }
+    }
+    DrawRectangleRounded(r, 0.30f, 8, pressed ? (Color){70, 74, 90, 255} : (Color){40, 42, 52, 255});
+    Color ic = pressed ? (Color){220, 224, 232, 255} : (Color){170, 176, 190, 255};
+    int bx = (int)(r.x + r.width * 0.26f), bw = (int)(r.width * 0.48f);
+    int bh = (int)(r.height * 0.09f) + 1;
+    for (int i = 0; i < 3; i++) {
+        DrawRectangle(bx, (int)(r.y + r.height * (0.30f + 0.20f * i)), bw, bh, ic);
+    }
+}
+
 // Draw the four control buttons with subtle, low-contrast styling and clean
 // vector icons (DrawPoly triangles are orientation-agnostic — no winding
 // concerns). Buttons brighten slightly while a finger rests on them.
 static void draw_touch_buttons(void) {
-    if (!s_touch_controls) return; // desktop browsers: keyboard only, no buttons
     Rectangle r[BTN_COUNT];
     render_touch_button_rects(r);
     int touches = GetTouchPointCount();
@@ -274,7 +307,7 @@ static void draw_touch_buttons(void) {
     }
 }
 
-static void draw_game(const Game* game) {
+static void draw_game_portrait(const Game* game) {
     int w = GetScreenWidth();
     int h = GetScreenHeight();
     ClearBackground(BLACK);
@@ -282,7 +315,7 @@ static void draw_game(const Game* game) {
     int margin   = w / 24;               // side margin
     int title_h  = h / 22;               // top title bar
     int hud_h    = h / 9;                // HUD band under the title
-    int bar_h    = s_touch_controls ? control_bar_h(h) : 0; // bottom control bar
+    int bar_h    = control_bar_h(h);   // bottom control bar (always in portrait)
     int bottom_m = h / 40;
     int avail_h  = h - title_h - hud_h - bar_h - bottom_m;
 
@@ -296,11 +329,12 @@ static void draw_game(const Game* game) {
     int play_x  = (w - field_w) / 2;
     int play_y  = title_h + hud_h + (avail_h - field_h) / 2;
 
-    // Title bar pinned to the top.
+    // Title bar pinned to the top, with the menu/pause button at its right end.
     int title_fs = title_h * 3 / 5;
     DrawRectangle(0, 0, w, title_h, DARKGRAY);
     DrawText("OPENBLOCKS", (w - MeasureText("OPENBLOCKS", title_fs)) / 2,
              (title_h - title_fs) / 2, title_fs, WHITE);
+    draw_menu_button();
 
     // HUD band: SCORE / LINES / LEVEL across the left, NEXT preview at the right.
     int hud_y    = title_h;
@@ -360,10 +394,12 @@ static void draw_game(const Game* game) {
     draw_touch_buttons();
 }
 
-#else
+#endif // OB_PORTRAIT
 
-// Draw the gameplay scene into the currently-active render target.
-static void draw_game(const Game* game) {
+#ifdef OB_LANDSCAPE
+
+// Draw the gameplay scene into the currently-active render target (canvas).
+static void draw_game_landscape(const Game* game) {
     ClearBackground(BLACK);
 
     // 3-column layout (hand-tuned for 640x480):
@@ -470,23 +506,13 @@ static void draw_game(const Game* game) {
     draw_piece_centered(game->next_piece.type, 0, right_x, box_y, box_w, box_h, CELL_SIZE, next_color);
 }
 
-#endif // PLATFORM_ANDROID
+#endif // OB_LANDSCAPE
 
-// A floating, centered panel with a title and an optional subtitle, drawn over
-// a dimmed background. Shared by the pause and game-over overlays. Sizes are
-// proportional to the real screen on Android, fixed to the canvas on desktop.
-static void draw_center_panel(const char* title, const char* subtitle, Color title_color) {
-#ifdef OB_TOUCH
-    int w = GetScreenWidth(), h = GetScreenHeight();
-    int panel_w = w * 72 / 100, panel_h = h * 16 / 100;
-    int ts = panel_h * 28 / 100, ss = panel_h * 13 / 100;
-    int title_dy = panel_h * 24 / 100, sub_dy = panel_h * 62 / 100;
-#else
-    int w = BASE_WIDTH, h = BASE_HEIGHT;
-    int panel_w = 340, panel_h = 120;
-    int ts = 30, ss = 14;
-    int title_dy = 28, sub_dy = 76;
-#endif
+// A floating, centered panel with a title and an optional subtitle, drawn over a
+// dimmed background. Shared by the pause and game-over overlays.
+static void draw_center_panel_at(int w, int h, int panel_w, int panel_h, int ts,
+                                 int ss, int title_dy, int sub_dy, const char* title,
+                                 const char* subtitle, Color title_color) {
     int cx = w / 2;
     int px = cx - panel_w / 2;
     int py = (h - panel_h) / 2;
@@ -501,37 +527,50 @@ static void draw_center_panel(const char* title, const char* subtitle, Color tit
     }
 }
 
+#ifdef OB_PORTRAIT
+static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    draw_center_panel_at(w, h, w * 72 / 100, h * 16 / 100, h * 16 / 100 * 28 / 100,
+                         h * 16 / 100 * 13 / 100, h * 16 / 100 * 24 / 100,
+                         h * 16 / 100 * 62 / 100, title, subtitle, tc);
+}
+#endif
+#ifdef OB_LANDSCAPE
+static void draw_center_panel_landscape(const char* title, const char* subtitle, Color tc) {
+    draw_center_panel_at(BASE_WIDTH, BASE_HEIGHT, 340, 120, 30, 14, 28, 76, title, subtitle, tc);
+}
+#endif
+
 // Menu item rectangles captured by the last render_menu(), for touch hit-testing
 // (Android). Populated by the Android render_menu; stays empty on desktop.
 static Rectangle s_menu_item_rects[8];
 static int s_menu_item_count = 0;
 
-#ifdef OB_TOUCH
+#ifdef OB_PORTRAIT
 
-// Android draws straight to the screen (draw_game clears and lays out at the
-// real device resolution); no offscreen canvas or letterbox.
-void render_frame(const Game* game) {
+// The portrait renderer draws straight to the screen at native resolution.
+static void render_frame_portrait(const Game* game) {
     BeginDrawing();
-    draw_game(game);
+    draw_game_portrait(game);
     EndDrawing();
 }
 
-void render_pause(const Game* game) {
+static void render_pause_portrait(const Game* game) {
     BeginDrawing();
-    draw_game(game);
-    draw_center_panel("GAME PAUSED", "Tap to resume", YELLOW);
+    draw_game_portrait(game);
+    draw_center_panel_portrait("GAME PAUSED", "Tap to resume", YELLOW);
     EndDrawing();
 }
 
-void render_game_over(const Game* game) {
+static void render_game_over_portrait(const Game* game) {
     BeginDrawing();
-    draw_game(game);
-    draw_center_panel("GAME OVER", "Tap to return to menu", RED);
+    draw_game_portrait(game);
+    draw_center_panel_portrait("GAME OVER", "Tap to return to menu", RED);
     EndDrawing();
 }
 
-void render_menu(const char* title, const char* const* items, int count,
-                 int selected, int gap_before) {
+static void render_menu_portrait(const char* title, const char* const* items, int count,
+                                 int selected, int gap_before) {
     int w = GetScreenWidth(), h = GetScreenHeight();
     BeginDrawing();
     ClearBackground(BLACK);
@@ -581,33 +620,36 @@ void render_menu(const char* title, const char* const* items, int count,
     EndDrawing();
 }
 
-#else
+#endif // OB_PORTRAIT
 
-void render_frame(const Game* game) {
+#ifdef OB_LANDSCAPE
+
+static void render_frame_landscape(const Game* game) {
     BeginTextureMode(canvas);
-    draw_game(game);
+    draw_game_landscape(game);
     EndTextureMode();
     present();
 }
 
-void render_pause(const Game* game) {
+static void render_pause_landscape(const Game* game) {
     BeginTextureMode(canvas);
-    draw_game(game);
-    draw_center_panel("GAME PAUSED", "Press any key to resume", YELLOW);
+    draw_game_landscape(game);
+    draw_center_panel_landscape("GAME PAUSED", "Press any key to resume", YELLOW);
     EndTextureMode();
     present();
 }
 
-void render_game_over(const Game* game) {
+static void render_game_over_landscape(const Game* game) {
     BeginTextureMode(canvas);
-    draw_game(game);
-    draw_center_panel("GAME OVER", "Press any key to return to menu", RED);
+    draw_game_landscape(game);
+    draw_center_panel_landscape("GAME OVER", "Press any key to return to menu", RED);
     EndTextureMode();
     present();
 }
 
-void render_menu(const char* title, const char* const* items, int count,
-                 int selected, int gap_before) {
+static void render_menu_landscape(const char* title, const char* const* items, int count,
+                                  int selected, int gap_before) {
+    s_menu_item_count = 0; // landscape uses keyboard; no touch hit-testing
     BeginTextureMode(canvas);
     ClearBackground(BLACK);
 
@@ -615,7 +657,6 @@ void render_menu(const char* title, const char* const* items, int count,
     int line_h = 30;
     int extra = (gap_before >= 0) ? 1 : 0;
     int title_size = 44;
-    int items_top = 0;
 
     int panel_w = 320;
     int content_h = title_size + 40 + (count + extra) * line_h;
@@ -628,8 +669,7 @@ void render_menu(const char* title, const char* const* items, int count,
 
     DrawText(title, cx - MeasureText(title, title_size) / 2, py + 28, title_size, WHITE);
 
-    items_top = py + 28 + title_size + 28;
-    int y = items_top;
+    int y = py + 28 + title_size + 28;
     for (int i = 0; i < count; i++) {
         if (gap_before == i) y += line_h; // blank line before this item
         const char* label = items[i];
@@ -648,7 +688,25 @@ void render_menu(const char* title, const char* const* items, int count,
     present();
 }
 
-#endif // PLATFORM_ANDROID
+#endif // OB_LANDSCAPE
+
+// Public entry points dispatch to the active renderer (compile-time on native
+// builds that have only one; runtime on web, which has both).
+#if defined(OB_RUNTIME_RENDERER)
+  #define OB_DISPATCH(fn, ...) do { if (s_portrait_mode) fn##_portrait(__VA_ARGS__); else fn##_landscape(__VA_ARGS__); } while (0)
+#elif defined(OB_PORTRAIT)
+  #define OB_DISPATCH(fn, ...) fn##_portrait(__VA_ARGS__)
+#else
+  #define OB_DISPATCH(fn, ...) fn##_landscape(__VA_ARGS__)
+#endif
+
+void render_frame(const Game* game)     { OB_DISPATCH(render_frame, game); }
+void render_pause(const Game* game)     { OB_DISPATCH(render_pause, game); }
+void render_game_over(const Game* game) { OB_DISPATCH(render_game_over, game); }
+void render_menu(const char* title, const char* const* items, int count,
+                 int selected, int gap_before) {
+    OB_DISPATCH(render_menu, title, items, count, selected, gap_before);
+}
 
 int render_menu_hit_test(Vector2 p) {
     for (int i = 0; i < s_menu_item_count; i++) {

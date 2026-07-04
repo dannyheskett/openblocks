@@ -47,7 +47,7 @@ static void poll_keyboard(Input* in) {
 // render_touch_button_rects() (matches what render.c draws); native-resolution
 // rendering means touch coords map 1:1 to the buttons.
 static void poll_touch(Input* in) {
-    if (!render_touch_controls_shown()) return; // desktop browsers: keyboard only
+    if (!render_use_portrait()) return; // landscape (desktop-browser) mode: keyboard only
     Rectangle b[BTN_COUNT];
     render_touch_button_rects(b);
 
@@ -82,11 +82,14 @@ static void poll_touch(Input* in) {
     // select / overlay dismissal.
     int g = GetGestureDetected();
     if (g == GESTURE_TAP || g == GESTURE_DOUBLETAP) {
+        Rectangle mb; render_menu_button_rect(&mb);
+        bool on_menu = CheckCollisionPointRec(last_pos, mb);
         bool on_lr   = CheckCollisionPointRec(last_pos, b[BTN_LEFT]) ||
                        CheckCollisionPointRec(last_pos, b[BTN_RIGHT]);
         bool on_drop = CheckCollisionPointRec(last_pos, b[BTN_DROP]);
-        if (on_drop)     in->hard_drop_pressed = true;
-        else if (!on_lr) in->rotate_pressed = true;
+        if (on_menu)     in->escape_pressed = true;   // top button -> back to menu
+        else if (on_drop) in->hard_drop_pressed = true;
+        else if (!on_lr)  in->rotate_pressed = true;
         in->any_pressed = true;
         in->touch_tap   = true;
         in->tap_x = last_pos.x;
