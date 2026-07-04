@@ -74,12 +74,12 @@ jobs:
       ANDROID_PLATFORM_VER: "34"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
       - name: Install NDK + build-tools + platform
         run: |
           sdkmanager --install "ndk;${NDK_VERSION}" \
@@ -94,7 +94,7 @@ jobs:
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
             ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openblocks-apk
           path: build/openblocks.apk
