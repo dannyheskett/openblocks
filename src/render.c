@@ -161,30 +161,39 @@ void render_cleanup(void) {
 }
 
 #ifdef OB_LANDSCAPE
+#ifndef PLATFORM_WEB
+// Desktop native: crisp integer scaling (1x, 2x, 3x, ...).
 static int calculate_scale(void) {
-    int window_w = GetScreenWidth();
-    int window_h = GetScreenHeight();
-
-    int scale_w = window_w / BASE_WIDTH;
-    int scale_h = window_h / BASE_HEIGHT;
+    int scale_w = GetScreenWidth() / BASE_WIDTH;
+    int scale_h = GetScreenHeight() / BASE_HEIGHT;
     int scale = (scale_w < scale_h) ? scale_w : scale_h;
-
     return (scale < 1) ? 1 : scale;
 }
+#endif
 
-// Blit the fixed-resolution canvas to the (possibly resized) window, centered
-// and integer-scaled.
+// Blit the fixed-resolution canvas to the window, centered and scaled.
 static void present(void) {
     // Record the clean canvas (the recording indicator below is drawn only to
     // the window, so it never appears in the captured video).
     recorder_capture(&canvas);
 
-    current_scale = calculate_scale();
+#ifdef PLATFORM_WEB
+    // Web: scale continuously to fill the viewport. Browser chrome usually leaves
+    // us just under an integer step, so snapping down (like the desktop app)
+    // would render tiny; nearest-neighbor keeps it crisp at fractional scale.
+    float sw = (float)GetScreenWidth()  / BASE_WIDTH;
+    float sh = (float)GetScreenHeight() / BASE_HEIGHT;
+    float scale = (sw < sh) ? sw : sh;
+    if (scale < 1.0f) scale = 1.0f;
+#else
+    float scale = (float)calculate_scale();
+#endif
+    current_scale = (int)scale;
 
-    int scaled_width = BASE_WIDTH * current_scale;
-    int scaled_height = BASE_HEIGHT * current_scale;
-    int offset_x = (GetScreenWidth() - scaled_width) / 2;
-    int offset_y = (GetScreenHeight() - scaled_height) / 2;
+    float scaled_width  = BASE_WIDTH  * scale;
+    float scaled_height = BASE_HEIGHT * scale;
+    float offset_x = (GetScreenWidth()  - scaled_width)  / 2.0f;
+    float offset_y = (GetScreenHeight() - scaled_height) / 2.0f;
 
     BeginDrawing();
     ClearBackground(BLACK);
