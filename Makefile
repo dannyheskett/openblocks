@@ -342,7 +342,9 @@ ios-sim: $(IOS_SIM_APP)
 
 $(IOS_SIM_APP): $(IOS_SRC) $(wildcard ios/*.h) src/gfx.h src/ob_types.h ios/Info.plist
 	@rm -rf $(IOS_SIM_APP) && mkdir -p $(IOS_SIM_APP)
-	xcrun -sdk iphonesimulator clang -arch arm64 \
+	# clang++ (not clang): the sources are Objective-C++ (.mm), so the C++ runtime
+	# (libc++) must be linked, else ___gxx_personality_v0 is undefined.
+	xcrun -sdk iphonesimulator clang++ -arch arm64 \
 	    -target arm64-apple-ios$(IOS_MIN)-simulator -fobjc-arc -fmodules \
 	    -Isrc -Iios -DPLATFORM_IOS -O2 \
 	    $(IOS_SRC) $(IOS_FRAMEWORKS) \
