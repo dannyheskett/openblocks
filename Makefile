@@ -324,6 +324,33 @@ $(WEB_OUT): $(WEB_SRC) $(wildcard src/*.h) web/shell.html | $(WEB_OUT_DIR)
 	@echo "[web] built $@"
 
 # ---------------------------------------------------------------------------
+# iOS (native Metal, no raylib) — Simulator build. CI-only: needs Xcode on a
+# macOS runner. This phase builds a minimal Metal app (clears the screen) to
+# prove the toolchain + Metal render in the Simulator; the Simulator needs no
+# code signing. The .app is assembled by hand (clang + Info.plist), no Xcode
+# project — mirroring the no-Gradle Android approach. Later phases add the game
+# TUs (compiled -DPLATFORM_IOS) and the real Metal primitives.
+# ---------------------------------------------------------------------------
+IOS_MIN        ?= 13.0
+IOS_APP_NAME   := Openblocks
+IOS_SIM_BUILD  := build/ios-sim
+IOS_SIM_APP    := $(IOS_SIM_BUILD)/$(IOS_APP_NAME).app
+IOS_SRC        := ios/ios_main.mm ios/gfx_metal.mm
+IOS_FRAMEWORKS := -framework UIKit -framework Metal -framework QuartzCore -framework Foundation
+
+ios-sim: $(IOS_SIM_APP)
+
+$(IOS_SIM_APP): $(IOS_SRC) $(wildcard ios/*.h) src/gfx.h src/ob_types.h ios/Info.plist
+	@rm -rf $(IOS_SIM_APP) && mkdir -p $(IOS_SIM_APP)
+	xcrun -sdk iphonesimulator clang -arch arm64 \
+	    -target arm64-apple-ios$(IOS_MIN)-simulator -fobjc-arc -fmodules \
+	    -Isrc -Iios -DPLATFORM_IOS -O2 \
+	    $(IOS_SRC) $(IOS_FRAMEWORKS) \
+	    -o $(IOS_SIM_APP)/$(IOS_APP_NAME)
+	cp ios/Info.plist $(IOS_SIM_APP)/Info.plist
+	@echo "[ios] built $(IOS_SIM_APP)"
+
+# ---------------------------------------------------------------------------
 # Unit tests (game logic only — no raylib/window needed). The test TU includes
 # game.c directly to reach its file-static helpers.
 # ---------------------------------------------------------------------------

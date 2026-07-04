@@ -9,7 +9,7 @@
 //
 // raylib defines PLATFORM_ANDROID / PLATFORM_WEB for its own sources; our build
 // passes the matching -D for the game translation units.
-#if defined(PLATFORM_ANDROID) || defined(PLATFORM_WEB)
+#if defined(PLATFORM_ANDROID) || defined(PLATFORM_WEB) || defined(PLATFORM_IOS)
 #define OB_TOUCH 1
 #endif
 
@@ -24,7 +24,7 @@
 #ifdef OB_TOUCH
 #define OB_PORTRAIT 1
 #endif
-#ifndef PLATFORM_ANDROID
+#if !defined(PLATFORM_ANDROID) && !defined(PLATFORM_IOS)
 #define OB_LANDSCAPE 1
 #endif
 
