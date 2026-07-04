@@ -102,6 +102,12 @@ static void draw_piece_centered(int piece_type, int rotation, int box_x, int box
 }
 
 void render_init(void) {
+#ifdef PLATFORM_ANDROID
+    // Request immersive fullscreen so the app draws under the status bar / camera
+    // cutout (paired with windowLayoutInDisplayCutoutMode=shortEdges in the theme)
+    // — otherwise the surface is letterboxed below the status bar.
+    SetConfigFlags(FLAG_FULLSCREEN_MODE);
+#endif
     // Fixed 640x480 window (not resizable); Alt+Enter toggles fullscreen.
     InitWindow(BASE_WIDTH, BASE_HEIGHT, "openblocks");
     SetExitKey(KEY_NULL); // Escape is handled by the game, not the window
