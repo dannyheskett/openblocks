@@ -1,4 +1,5 @@
 #include "render.h"
+#include "gfx.h"
 #include "recorder.h"
 #include <raylib.h>
 
@@ -63,7 +64,7 @@ static void draw_piece_ex(const Piece* piece, int offset_x, int offset_y, int ce
             if (shape[y][x]) {
                 int px = offset_x + (piece->x + x) * cell_size;
                 int py = offset_y + (piece->y + y) * cell_size;
-                DrawRectangle(px + 1, py + 1, cell_size - 2, cell_size - 2, color);
+                gfx_rect(px + 1, py + 1, cell_size - 2, cell_size - 2, color);
             }
         }
     }
@@ -106,7 +107,7 @@ static void draw_piece_centered(int piece_type, int rotation, int box_x, int box
     for (int y = miny; y <= maxy; y++) {
         for (int x = minx; x <= maxx; x++) {
             if (shape[y][x]) {
-                DrawRectangle(ox + x * cell + 1, oy + y * cell + 1,
+                gfx_rect(ox + x * cell + 1, oy + y * cell + 1,
                               cell - 2, cell - 2, color);
             }
         }
@@ -195,8 +196,8 @@ static void present(void) {
     float offset_x = (GetScreenWidth()  - scaled_width)  / 2.0f;
     float offset_y = (GetScreenHeight() - scaled_height) / 2.0f;
 
-    BeginDrawing();
-    ClearBackground(BLACK);
+    gfx_begin_frame();
+    gfx_clear(BLACK);
     DrawTexturePro(canvas.texture,
         (Rectangle){0, 0, BASE_WIDTH, -BASE_HEIGHT},
         (Rectangle){offset_x, offset_y, scaled_width, scaled_height},
@@ -206,10 +207,10 @@ static void present(void) {
     if (recorder_active()) {
         int s = current_scale;
         DrawCircle(offset_x + 16 * s, offset_y + 14 * s, 5.0f * s, RED);
-        DrawText("REC", offset_x + 24 * s, offset_y + 8 * s, 12 * s, RED);
+        gfx_text("REC", offset_x + 24 * s, offset_y + 8 * s, 12 * s, RED);
     }
 
-    EndDrawing();
+    gfx_end_frame();
 }
 #endif // OB_LANDSCAPE: canvas / calculate_scale / present
 
@@ -268,12 +269,12 @@ static void draw_menu_button(void) {
     for (int t = 0; t < touches; t++) {
         if (CheckCollisionPointRec(GetTouchPosition(t), r)) { pressed = true; break; }
     }
-    DrawRectangleRounded(r, 0.30f, 8, pressed ? (Color){70, 74, 90, 255} : (Color){40, 42, 52, 255});
+    gfx_rounded_rect(r, 0.30f, 8, pressed ? (Color){70, 74, 90, 255} : (Color){40, 42, 52, 255});
     Color ic = pressed ? (Color){220, 224, 232, 255} : (Color){170, 176, 190, 255};
     int bx = (int)(r.x + r.width * 0.26f), bw = (int)(r.width * 0.48f);
     int bh = (int)(r.height * 0.09f) + 1;
     for (int i = 0; i < 3; i++) {
-        DrawRectangle(bx, (int)(r.y + r.height * (0.30f + 0.20f * i)), bw, bh, ic);
+        gfx_rect(bx, (int)(r.y + r.height * (0.30f + 0.20f * i)), bw, bh, ic);
     }
 }
 
@@ -293,23 +294,23 @@ static void draw_touch_buttons(void) {
         Color fill = pressed ? (Color){44, 47, 58, 255} : (Color){24, 26, 32, 255};
         Color edge = pressed ? (Color){90, 96, 112, 255} : (Color){48, 52, 62, 255};
         Color icon = pressed ? (Color){215, 219, 228, 255} : (Color){150, 156, 170, 255};
-        DrawRectangleRounded(r[i], 0.30f, 10, fill);
-        DrawRectangleRoundedLinesEx(r[i], 0.30f, 10, 1.5f, edge);
+        gfx_rounded_rect(r[i], 0.30f, 10, fill);
+        gfx_rounded_rect_lines(r[i], 0.30f, 10, 1.5f, edge);
 
         float cx = r[i].x + r[i].width / 2.0f;
         float cy = r[i].y + r[i].height / 2.0f;
         float s = r[i].height * 0.26f;
         Vector2 c = {cx, cy};
         switch (i) {
-        case BTN_LEFT:  DrawPoly(c, 3, s, 180, icon); break; // points left
-        case BTN_RIGHT: DrawPoly(c, 3, s, 0,   icon); break; // points right
+        case BTN_LEFT:  gfx_poly(c, 3, s, 180, icon); break; // points left
+        case BTN_RIGHT: gfx_poly(c, 3, s, 0,   icon); break; // points right
         case BTN_ROTATE:
-            DrawRing(c, s * 0.52f, s * 0.82f, 40, 320, 32, icon);           // C-shaped arrow
-            DrawPoly((Vector2){cx, cy - s * 0.67f}, 3, s * 0.32f, 0, icon); // arrowhead
+            gfx_ring(c, s * 0.52f, s * 0.82f, 40, 320, 32, icon);           // C-shaped arrow
+            gfx_poly((Vector2){cx, cy - s * 0.67f}, 3, s * 0.32f, 0, icon); // arrowhead
             break;
         case BTN_DROP:
-            DrawPoly((Vector2){cx, cy - s * 0.25f}, 3, s, 90, icon);        // points down
-            DrawRectangle((int)(cx - s * 0.9f), (int)(cy + s * 0.85f),
+            gfx_poly((Vector2){cx, cy - s * 0.25f}, 3, s, 90, icon);        // points down
+            gfx_rect((int)(cx - s * 0.9f), (int)(cy + s * 0.85f),
                           (int)(s * 1.8f), 3, icon);                        // floor line
             break;
         }
@@ -319,7 +320,7 @@ static void draw_touch_buttons(void) {
 static void draw_game_portrait(const Game* game) {
     int w = GetScreenWidth();
     int h = GetScreenHeight();
-    ClearBackground(BLACK);
+    gfx_clear(BLACK);
 
     int margin   = w / 24;               // side margin
     int title_h  = h / 22;               // top title bar
@@ -340,8 +341,8 @@ static void draw_game_portrait(const Game* game) {
 
     // Title bar pinned to the top, with the menu/pause button at its right end.
     int title_fs = title_h * 3 / 5;
-    DrawRectangle(0, 0, w, title_h, DARKGRAY);
-    DrawText("OPENBLOCKS", (w - MeasureText("OPENBLOCKS", title_fs)) / 2,
+    gfx_rect(0, 0, w, title_h, DARKGRAY);
+    gfx_text("OPENBLOCKS", (w - gfx_measure_text("OPENBLOCKS", title_fs)) / 2,
              (title_h - title_fs) / 2, title_fs, WHITE);
     draw_menu_button();
 
@@ -351,32 +352,32 @@ static void draw_game_portrait(const Game* game) {
     int value_fs = hud_h * 2 / 5;
     int lab_y    = hud_y + hud_h / 6;
     int val_y    = hud_y + hud_h * 45 / 100;
-    DrawText("SCORE", margin, lab_y, label_fs, WHITE);
-    DrawText(TextFormat("%06u", (unsigned int)game->score), margin, val_y, value_fs, YELLOW);
-    DrawText("LINES", w * 30 / 100, lab_y, label_fs, WHITE);
-    DrawText(TextFormat("%3d", game->lines_cleared), w * 30 / 100, val_y, value_fs, YELLOW);
-    DrawText("LEVEL", w * 52 / 100, lab_y, label_fs, WHITE);
-    DrawText(TextFormat("%2d", game->level), w * 52 / 100, val_y, value_fs, YELLOW);
+    gfx_text("SCORE", margin, lab_y, label_fs, WHITE);
+    gfx_text(TextFormat("%06u", (unsigned int)game->score), margin, val_y, value_fs, YELLOW);
+    gfx_text("LINES", w * 30 / 100, lab_y, label_fs, WHITE);
+    gfx_text(TextFormat("%3d", game->lines_cleared), w * 30 / 100, val_y, value_fs, YELLOW);
+    gfx_text("LEVEL", w * 52 / 100, lab_y, label_fs, WHITE);
+    gfx_text(TextFormat("%2d", game->level), w * 52 / 100, val_y, value_fs, YELLOW);
 
     // NEXT preview box (square mini-cells), right-aligned in the HUD band.
     int ncell  = hud_h / 6;
     int nbox_w = ncell * 6, nbox_h = ncell * 4;
     int nbox_x = w - margin - nbox_w;
     int nbox_y = hud_y + label_fs + hud_h / 12;
-    DrawText("NEXT", nbox_x, hud_y + hud_h / 12, label_fs, WHITE);
-    DrawRectangleLines(nbox_x, nbox_y, nbox_w, nbox_h, LIGHTGRAY);
-    DrawRectangle(nbox_x + 1, nbox_y + 1, nbox_w - 2, nbox_h - 2, BOARD_BG);
+    gfx_text("NEXT", nbox_x, hud_y + hud_h / 12, label_fs, WHITE);
+    gfx_rect_lines(nbox_x, nbox_y, nbox_w, nbox_h, LIGHTGRAY);
+    gfx_rect(nbox_x + 1, nbox_y + 1, nbox_w - 2, nbox_h - 2, BOARD_BG);
     Color next_color = color_from_piece(game->next_piece.type, game->level);
     draw_piece_centered(game->next_piece.type, 0, nbox_x, nbox_y, nbox_w, nbox_h, ncell, next_color);
 
     // Playfield: border, background, grid.
-    DrawRectangleLines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
+    gfx_rect_lines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
                        field_w + BORDER_WIDTH * 2, field_h + BORDER_WIDTH * 2, LIGHTGRAY);
-    DrawRectangle(play_x, play_y, field_w, field_h, BOARD_BG);
+    gfx_rect(play_x, play_y, field_w, field_h, BOARD_BG);
     for (int y = 0; y <= PLAYFIELD_HEIGHT; y++)
-        DrawLine(play_x, play_y + y * cell, play_x + field_w, play_y + y * cell, GRID_LINE);
+        gfx_line(play_x, play_y + y * cell, play_x + field_w, play_y + y * cell, GRID_LINE);
     for (int x = 0; x <= PLAYFIELD_WIDTH; x++)
-        DrawLine(play_x + x * cell, play_y, play_x + x * cell, play_y + field_h, GRID_LINE);
+        gfx_line(play_x + x * cell, play_y, play_x + x * cell, play_y + field_h, GRID_LINE);
 
     // Locked cells.
     for (int y = 0; y < PLAYFIELD_HEIGHT; y++) {
@@ -384,7 +385,7 @@ static void draw_game_portrait(const Game* game) {
             if (game->cells[y][x]) {
                 int piece_type = game->cells[y][x] - 1;
                 Color col = color_from_piece(piece_type, game->level);
-                DrawRectangle(play_x + x * cell + 1, play_y + y * cell + 1,
+                gfx_rect(play_x + x * cell + 1, play_y + y * cell + 1,
                               cell - 2, cell - 2, col);
             }
         }
@@ -396,7 +397,7 @@ static void draw_game_portrait(const Game* game) {
         draw_piece_ex(&game->current_piece, play_x, play_y, cell, piece_color);
     } else if (game->clear_count >= 4 && (game->clear_step % 2 == 0)) {
         for (int i = 0; i < game->clear_count; i++)
-            DrawRectangle(play_x, play_y + game->clear_rows[i] * cell, field_w, cell,
+            gfx_rect(play_x, play_y + game->clear_rows[i] * cell, field_w, cell,
                           (Color){255, 255, 255, 90});
     }
 
@@ -409,7 +410,7 @@ static void draw_game_portrait(const Game* game) {
 
 // Draw the gameplay scene into the currently-active render target (canvas).
 static void draw_game_landscape(const Game* game) {
-    ClearBackground(BLACK);
+    gfx_clear(BLACK);
 
     // 3-column layout (hand-tuned for 640x480):
     // Left: STATISTICS | Center: playfield | Right: LINES/SCORE/LEVEL/NEXT.
@@ -424,8 +425,8 @@ static void draw_game_landscape(const Game* game) {
     int right_x = play_x + field_w + gap;               // 450
 
     // Top border/title
-    DrawRectangle(0, 0, BASE_WIDTH, 24, DARKGRAY);
-    DrawText("OPENBLOCKS", (BASE_WIDTH - MeasureText("OPENBLOCKS", 16)) / 2, 4, 16, WHITE);
+    gfx_rect(0, 0, BASE_WIDTH, 24, DARKGRAY);
+    gfx_text("OPENBLOCKS", (BASE_WIDTH - gfx_measure_text("OPENBLOCKS", 16)) / 2, 4, 16, WHITE);
 
     // Left column: piece statistics — a running count of each piece spawned,
     // in a fixed order.
@@ -438,7 +439,7 @@ static void draw_game_landscape(const Game* game) {
         [PIECE_I] = 0, [PIECE_O] = 0, [PIECE_T] = 0, [PIECE_S] = 0,
         [PIECE_Z] = 0, [PIECE_J] = 1, [PIECE_L] = 1,
     };
-    DrawText("STATISTICS", stat_x, 40, 12, WHITE);
+    gfx_text("STATISTICS", stat_x, 40, 12, WHITE);
     // Spread the 7 rows evenly across the playfield's height so the left column
     // shares the field's vertical rhythm. Icon box is 40x36; count text is
     // vertically centered against it.
@@ -449,22 +450,22 @@ static void draw_game_landscape(const Game* game) {
         int row_y = rows_top + i * row_step;
         Color c = color_from_piece(type, game->level);
         draw_piece_centered(type, STAT_ROTATION[type], stat_x, row_y, 40, 36, 9, c);
-        DrawText(TextFormat("%03d", game->piece_counts[type]),
+        gfx_text(TextFormat("%03d", game->piece_counts[type]),
                  stat_x + 56, row_y + 18 - 8, 16, YELLOW); // centered on icon
     }
 
     // Center: playfield
-    DrawRectangleLines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
+    gfx_rect_lines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
                        field_w + BORDER_WIDTH * 2,
                        PLAYFIELD_HEIGHT * CELL_SIZE + BORDER_WIDTH * 2, LIGHTGRAY);
 
-    DrawRectangle(play_x, play_y, field_w, PLAYFIELD_HEIGHT * CELL_SIZE, BOARD_BG);
+    gfx_rect(play_x, play_y, field_w, PLAYFIELD_HEIGHT * CELL_SIZE, BOARD_BG);
 
     for (int y = 0; y <= PLAYFIELD_HEIGHT; y++) {
-        DrawLine(play_x, play_y + y * CELL_SIZE, play_x + field_w, play_y + y * CELL_SIZE, GRID_LINE);
+        gfx_line(play_x, play_y + y * CELL_SIZE, play_x + field_w, play_y + y * CELL_SIZE, GRID_LINE);
     }
     for (int x = 0; x <= PLAYFIELD_WIDTH; x++) {
-        DrawLine(play_x + x * CELL_SIZE, play_y, play_x + x * CELL_SIZE, play_y + PLAYFIELD_HEIGHT * CELL_SIZE, GRID_LINE);
+        gfx_line(play_x + x * CELL_SIZE, play_y, play_x + x * CELL_SIZE, play_y + PLAYFIELD_HEIGHT * CELL_SIZE, GRID_LINE);
     }
 
     for (int y = 0; y < PLAYFIELD_HEIGHT; y++) {
@@ -474,7 +475,7 @@ static void draw_game_landscape(const Game* game) {
                 Color col = color_from_piece(piece_type, game->level);
                 int px = play_x + x * CELL_SIZE;
                 int py = play_y + y * CELL_SIZE;
-                DrawRectangle(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, col);
+                gfx_rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, col);
             }
         }
     }
@@ -489,28 +490,28 @@ static void draw_game_landscape(const Game* game) {
         if (game->clear_count >= 4 && (game->clear_step % 2 == 0)) {
             for (int i = 0; i < game->clear_count; i++) {
                 int py = play_y + game->clear_rows[i] * CELL_SIZE;
-                DrawRectangle(play_x, py, PLAYFIELD_WIDTH * CELL_SIZE, CELL_SIZE,
+                gfx_rect(play_x, py, PLAYFIELD_WIDTH * CELL_SIZE, CELL_SIZE,
                               (Color){255, 255, 255, 90});
             }
         }
     }
 
     // Right column: lines, score, level, next
-    DrawText("LINES", right_x, 40, 12, WHITE);
-    DrawText(TextFormat("%3d", game->lines_cleared), right_x, 56, 20, YELLOW);
+    gfx_text("LINES", right_x, 40, 12, WHITE);
+    gfx_text(TextFormat("%3d", game->lines_cleared), right_x, 56, 20, YELLOW);
 
-    DrawText("SCORE", right_x, 100, 12, WHITE);
-    DrawText(TextFormat("%06u", (unsigned int)game->score), right_x, 116, 20, YELLOW);
+    gfx_text("SCORE", right_x, 100, 12, WHITE);
+    gfx_text(TextFormat("%06u", (unsigned int)game->score), right_x, 116, 20, YELLOW);
 
-    DrawText("LEVEL", right_x, 160, 12, WHITE);
-    DrawText(TextFormat("%2d", game->level), right_x, 176, 20, YELLOW);
+    gfx_text("LEVEL", right_x, 160, 12, WHITE);
+    gfx_text(TextFormat("%2d", game->level), right_x, 176, 20, YELLOW);
 
-    DrawText("NEXT", right_x, 224, 12, WHITE);
+    gfx_text("NEXT", right_x, 224, 12, WHITE);
     int box_w = 6 * CELL_SIZE; // 6 cells wide so the I-piece fits comfortably
     int box_h = 4 * CELL_SIZE;
     int box_y = 244;
-    DrawRectangleLines(right_x, box_y, box_w, box_h, LIGHTGRAY);
-    DrawRectangle(right_x + 1, box_y + 1, box_w - 2, box_h - 2, BOARD_BG);
+    gfx_rect_lines(right_x, box_y, box_w, box_h, LIGHTGRAY);
+    gfx_rect(right_x + 1, box_y + 1, box_w - 2, box_h - 2, BOARD_BG);
     Color next_color = color_from_piece(game->next_piece.type, game->level);
     draw_piece_centered(game->next_piece.type, 0, right_x, box_y, box_w, box_h, CELL_SIZE, next_color);
 }
@@ -526,13 +527,13 @@ static void draw_center_panel_at(int w, int h, int panel_w, int panel_h, int ts,
     int px = cx - panel_w / 2;
     int py = (h - panel_h) / 2;
 
-    DrawRectangle(0, 0, w, h, (Color){0, 0, 0, 170}); // dim
-    DrawRectangle(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
-    DrawRectangleLines(px, py, panel_w, panel_h, LIGHTGRAY);
+    gfx_rect(0, 0, w, h, (Color){0, 0, 0, 170}); // dim
+    gfx_rect(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
+    gfx_rect_lines(px, py, panel_w, panel_h, LIGHTGRAY);
 
-    DrawText(title, cx - MeasureText(title, ts) / 2, py + title_dy, ts, title_color);
+    gfx_text(title, cx - gfx_measure_text(title, ts) / 2, py + title_dy, ts, title_color);
     if (subtitle) {
-        DrawText(subtitle, cx - MeasureText(subtitle, ss) / 2, py + sub_dy, ss, GRAY);
+        gfx_text(subtitle, cx - gfx_measure_text(subtitle, ss) / 2, py + sub_dy, ss, GRAY);
     }
 }
 
@@ -561,30 +562,30 @@ static int s_menu_item_count = 0;
 
 // The portrait renderer draws straight to the screen at native resolution.
 static void render_frame_portrait(const Game* game) {
-    BeginDrawing();
+    gfx_begin_frame();
     draw_game_portrait(game);
-    EndDrawing();
+    gfx_end_frame();
 }
 
 static void render_pause_portrait(const Game* game) {
-    BeginDrawing();
+    gfx_begin_frame();
     draw_game_portrait(game);
     draw_center_panel_portrait("GAME PAUSED", "Tap to resume", YELLOW);
-    EndDrawing();
+    gfx_end_frame();
 }
 
 static void render_game_over_portrait(const Game* game) {
-    BeginDrawing();
+    gfx_begin_frame();
     draw_game_portrait(game);
     draw_center_panel_portrait("GAME OVER", "Tap to return to menu", RED);
-    EndDrawing();
+    gfx_end_frame();
 }
 
 static void render_menu_portrait(const char* title, const char* const* items, int count,
                                  int selected, int gap_before) {
     int w = GetScreenWidth(), h = GetScreenHeight();
-    BeginDrawing();
-    ClearBackground(BLACK);
+    gfx_begin_frame();
+    gfx_clear(BLACK);
 
     int cx = w / 2;
     int line_h = h / 20;
@@ -595,7 +596,7 @@ static void render_menu_portrait(const char* title, const char* const* items, in
 
     // Shrink the title if it would overrun the panel (wide tablets).
     int title_size = h / 16;
-    while (title_size > 12 && MeasureText(title, title_size) > panel_w - line_h) {
+    while (title_size > 12 && gfx_measure_text(title, title_size) > panel_w - line_h) {
         title_size -= 2;
     }
 
@@ -604,10 +605,10 @@ static void render_menu_portrait(const char* title, const char* const* items, in
     int px = cx - panel_w / 2;
     int py = (h - panel_h) / 2;
 
-    DrawRectangle(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
-    DrawRectangleLines(px, py, panel_w, panel_h, LIGHTGRAY);
+    gfx_rect(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
+    gfx_rect_lines(px, py, panel_w, panel_h, LIGHTGRAY);
 
-    DrawText(title, cx - MeasureText(title, title_size) / 2, py + line_h, title_size, WHITE);
+    gfx_text(title, cx - gfx_measure_text(title, title_size) / 2, py + line_h, title_size, WHITE);
 
     // Capture each item's clickable row rectangle for touch hit-testing.
     s_menu_item_count = (count < 8) ? count : 8;
@@ -615,13 +616,13 @@ static void render_menu_portrait(const char* title, const char* const* items, in
     for (int i = 0; i < count; i++) {
         if (gap_before == i) y += line_h;
         const char* label = items[i];
-        int lw = MeasureText(label, item_fs);
+        int lw = gfx_measure_text(label, item_fs);
         Color col = (i == selected) ? YELLOW : GRAY;
         if (i == selected) {
-            DrawText(">", cx - lw / 2 - item_fs * 3 / 2, y, item_fs, YELLOW);
-            DrawText("<", cx + lw / 2 + item_fs / 2, y, item_fs, YELLOW);
+            gfx_text(">", cx - lw / 2 - item_fs * 3 / 2, y, item_fs, YELLOW);
+            gfx_text("<", cx + lw / 2 + item_fs / 2, y, item_fs, YELLOW);
         }
-        DrawText(label, cx - lw / 2, y, item_fs, col);
+        gfx_text(label, cx - lw / 2, y, item_fs, col);
         if (i < 8) {
             s_menu_item_rects[i] = (Rectangle){ (float)px, (float)(y - (line_h - item_fs) / 2),
                                                 (float)panel_w, (float)line_h };
@@ -629,7 +630,7 @@ static void render_menu_portrait(const char* title, const char* const* items, in
         y += line_h;
     }
 
-    EndDrawing();
+    gfx_end_frame();
 }
 
 #endif // OB_PORTRAIT
@@ -663,7 +664,7 @@ static void render_menu_landscape(const char* title, const char* const* items, i
                                   int selected, int gap_before) {
     s_menu_item_count = 0; // landscape uses keyboard; no touch hit-testing
     BeginTextureMode(canvas);
-    ClearBackground(BLACK);
+    gfx_clear(BLACK);
 
     int cx = BASE_WIDTH / 2;
     int line_h = 30;
@@ -676,23 +677,23 @@ static void render_menu_landscape(const char* title, const char* const* items, i
     int px = cx - panel_w / 2;
     int py = (BASE_HEIGHT - panel_h) / 2;
 
-    DrawRectangle(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
-    DrawRectangleLines(px, py, panel_w, panel_h, LIGHTGRAY);
+    gfx_rect(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
+    gfx_rect_lines(px, py, panel_w, panel_h, LIGHTGRAY);
 
-    DrawText(title, cx - MeasureText(title, title_size) / 2, py + 28, title_size, WHITE);
+    gfx_text(title, cx - gfx_measure_text(title, title_size) / 2, py + 28, title_size, WHITE);
 
     int y = py + 28 + title_size + 28;
     for (int i = 0; i < count; i++) {
         if (gap_before == i) y += line_h; // blank line before this item
         const char* label = items[i];
         int size = 20;
-        int lw = MeasureText(label, size);
+        int lw = gfx_measure_text(label, size);
         Color col = (i == selected) ? YELLOW : GRAY;
         if (i == selected) {
-            DrawText(">", cx - lw / 2 - 26, y, size, YELLOW);
-            DrawText("<", cx + lw / 2 + 14, y, size, YELLOW);
+            gfx_text(">", cx - lw / 2 - 26, y, size, YELLOW);
+            gfx_text("<", cx + lw / 2 + 14, y, size, YELLOW);
         }
-        DrawText(label, cx - lw / 2, y, size, col);
+        gfx_text(label, cx - lw / 2, y, size, col);
         y += line_h;
     }
 

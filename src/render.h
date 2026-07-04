@@ -3,7 +3,7 @@
 
 #include "game.h"
 #include "platform.h"
-#include <raylib.h>
+#include "ob_types.h"
 #include <stdbool.h>
 
 // The landscape renderer draws to a fixed 640x480 off-screen canvas that
