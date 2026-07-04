@@ -6,16 +6,12 @@
 #include <raylib.h>
 #include <stdbool.h>
 
-// The game renders to a fixed off-screen canvas that present() integer-scales
-// and letterboxes into the real window/screen. Desktop uses a 640x480 landscape
-// canvas; Android uses a portrait canvas sized for a phone screen.
-#ifdef OB_TOUCH
-#define BASE_WIDTH  480
-#define BASE_HEIGHT 854
-#else
+// The landscape renderer draws to a fixed 640x480 off-screen canvas that
+// present() integer-scales and letterboxes into the window. These are the
+// landscape canvas dimensions only — the portrait renderer sizes itself from the
+// live screen (GetScreenWidth/Height) and does not use BASE_WIDTH/BASE_HEIGHT.
 #define BASE_WIDTH  640
 #define BASE_HEIGHT 480
-#endif
 
 void render_init(void);
 void render_cleanup(void);
@@ -56,10 +52,15 @@ void render_touch_button_rects(Rectangle rects[BTN_COUNT]);
 // rectangles captured by the last render_menu() call (Android touch menus).
 int render_menu_hit_test(Vector2 p);
 
-// Whether the on-screen touch buttons are shown (and the bottom control bar
-// reserved). Defaults on; the web build turns it off for desktop browsers
-// (keyboard input) and on for touch devices. Android always leaves it on.
-void render_set_touch_controls(bool show);
-bool render_touch_controls_shown(void);
+// The on-screen menu/pause button rectangle (top corner of the portrait
+// renderer). render.c draws it; input.c hit-tests it to return to the menu.
+void render_menu_button_rect(Rectangle* out);
+
+// Active renderer selection. Native builds have exactly one renderer, so
+// render_use_portrait() is a compile-time constant there (true on Android, false
+// on desktop). The web build compiles both and picks at runtime:
+// render_set_portrait(true) = portrait touch layout, false = desktop landscape.
+void render_set_portrait(bool portrait);
+bool render_use_portrait(void);
 
 #endif

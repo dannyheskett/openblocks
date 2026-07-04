@@ -223,7 +223,7 @@ WEB_OUT     := $(WEB_OUT_DIR)/openblocks.html
 
 web: $(WEB_OUT)
 
-$(WEB_OUT): $(WEB_SRC) web/shell.html | $(WEB_OUT_DIR)
+$(WEB_OUT): $(WEB_SRC) $(wildcard src/*.h) web/shell.html | $(WEB_OUT_DIR)
 	emcc $(WEB_CFLAGS) $(WEB_SRC) -o $@ $(WEB_LDFLAGS)
 	@echo "[web] built $@"
 

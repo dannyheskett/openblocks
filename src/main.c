@@ -26,6 +26,7 @@ typedef enum {
     ACT_NEW,
     ACT_SOUND,
     ACT_RECORD,
+    ACT_CONTROLS, // web only: toggle portrait touch layout vs desktop landscape
     ACT_EXIT,
 } MenuAction;
 
@@ -53,7 +54,14 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     // the toggle would do nothing there — omit it.
     labels[n] = recorder_active() ? "Record: On" : "Record: Off"; actions[n++] = ACT_RECORD;
 #endif
+#ifdef PLATFORM_WEB
+    // The web build ships both renderers; let the player pick (auto-detected by
+    // pointer type, but a 2-in-1 or a preference may want the other).
+    labels[n] = render_use_portrait() ? "Controls: On" : "Controls: Off"; actions[n++] = ACT_CONTROLS;
+    // A browser tab can't be closed from code, so no Exit on web.
+#else
     labels[n] = "Exit"; actions[n++] = ACT_EXIT;
+#endif
     return n;
 }
 
@@ -121,6 +129,12 @@ static void frame_step(void* arg) {
                 break;
             case ACT_RECORD:
                 recorder_toggle();
+                sound_play(SFX_MENU_SELECT);
+                break;
+            case ACT_CONTROLS:
+#ifdef PLATFORM_WEB
+                render_set_portrait(!render_use_portrait());
+#endif
                 sound_play(SFX_MENU_SELECT);
                 break;
             case ACT_EXIT:
@@ -201,12 +215,13 @@ int main(int argc, char** argv) {
     sound_init();
 
 #ifdef PLATFORM_WEB
-    // Show the on-screen buttons only on touch devices; desktop browsers drive
-    // the game with the keyboard. A coarse primary pointer is the reliable
-    // "this is a phone/tablet" signal.
-    render_set_touch_controls(emscripten_run_script_int(
-        "((window.matchMedia && window.matchMedia('(pointer: coarse)').matches)"
-        " || ('ontouchstart' in window) || navigator.maxTouchPoints > 0) ? 1 : 0"));
+    // Pick the renderer by the primary pointer: coarse (phone/tablet) -> portrait
+    // touch layout; fine (desktop / 2-in-1 laptop) -> desktop landscape layout +
+    // keyboard, matching the native desktop app. Only pointer:coarse is used —
+    // the maxTouchPoints/ontouchstart backstops wrongly flipped touchscreen
+    // laptops to the touch layout.
+    render_set_portrait(emscripten_run_script_int(
+        "(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 1 : 0"));
 #endif
 
     if (cli_record) recorder_start(cli_record_path);
