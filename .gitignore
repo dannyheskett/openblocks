@@ -12,3 +12,4 @@ third_party/raylib/
 *.swp
 *.swo
 *~
+.playwright-mcp/

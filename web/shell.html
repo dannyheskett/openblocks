@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover + no user scaling: a full-bleed, app-like mobile canvas. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>openblocks</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  /* The canvas fills the viewport; touch-action:none lets the game handle all
+     touches (no browser scroll/zoom). */
+  #canvas { display: block; width: 100vw; height: 100vh; touch-action: none; outline: none; }
+</style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+  <script>
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      // Size the canvas backing store to the viewport (device pixels) and keep it
+      // in sync on rotate/resize. raylib is built with FLAG_WINDOW_RESIZABLE, so
+      // GetScreenWidth/Height follow the canvas and the layout re-fits.
+      _fit: function () {
+        var c = Module.canvas;
+        var dpr = window.devicePixelRatio || 1;
+        c.width  = Math.floor(window.innerWidth  * dpr);
+        c.height = Math.floor(window.innerHeight * dpr);
+      },
+    };
+    Module._fit();
+    window.addEventListener('resize', function () { Module._fit(); });
+    window.addEventListener('orientationchange', function () { Module._fit(); });
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
