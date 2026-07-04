@@ -56,4 +56,10 @@ void render_touch_button_rects(Rectangle rects[BTN_COUNT]);
 // rectangles captured by the last render_menu() call (Android touch menus).
 int render_menu_hit_test(Vector2 p);
 
+// Whether the on-screen touch buttons are shown (and the bottom control bar
+// reserved). Defaults on; the web build turns it off for desktop browsers
+// (keyboard input) and on for touch devices. Android always leaves it on.
+void render_set_touch_controls(bool show);
+bool render_touch_controls_shown(void);
+
 #endif

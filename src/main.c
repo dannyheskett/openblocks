@@ -200,6 +200,15 @@ int main(int argc, char** argv) {
     render_init();
     sound_init();
 
+#ifdef PLATFORM_WEB
+    // Show the on-screen buttons only on touch devices; desktop browsers drive
+    // the game with the keyboard. A coarse primary pointer is the reliable
+    // "this is a phone/tablet" signal.
+    render_set_touch_controls(emscripten_run_script_int(
+        "((window.matchMedia && window.matchMedia('(pointer: coarse)').matches)"
+        " || ('ontouchstart' in window) || navigator.maxTouchPoints > 0) ? 1 : 0"));
+#endif
+
     if (cli_record) recorder_start(cli_record_path);
 
     // Static so the pointer handed to emscripten stays valid after main()'s stack
