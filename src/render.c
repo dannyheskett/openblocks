@@ -204,6 +204,12 @@ static void present(void) {
 // Height of the bottom on-screen control bar (a bit slimmer than a sixth).
 static int control_bar_h(int h) { return h / 7; }
 
+// Whether to draw the on-screen buttons and reserve the control bar. On by
+// default (Android); the web build disables it for desktop browsers.
+static bool s_touch_controls = true;
+void render_set_touch_controls(bool show) { s_touch_controls = show; }
+bool render_touch_controls_shown(void) { return s_touch_controls; }
+
 void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
     int w = GetScreenWidth(), h = GetScreenHeight();
     int bar_h = control_bar_h(h);
@@ -232,6 +238,7 @@ void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
 // vector icons (DrawPoly triangles are orientation-agnostic — no winding
 // concerns). Buttons brighten slightly while a finger rests on them.
 static void draw_touch_buttons(void) {
+    if (!s_touch_controls) return; // desktop browsers: keyboard only, no buttons
     Rectangle r[BTN_COUNT];
     render_touch_button_rects(r);
     int touches = GetTouchPointCount();
@@ -275,7 +282,7 @@ static void draw_game(const Game* game) {
     int margin   = w / 24;               // side margin
     int title_h  = h / 22;               // top title bar
     int hud_h    = h / 9;                // HUD band under the title
-    int bar_h    = control_bar_h(h);     // bottom control-button bar
+    int bar_h    = s_touch_controls ? control_bar_h(h) : 0; // bottom control bar
     int bottom_m = h / 40;
     int avail_h  = h - title_h - hud_h - bar_h - bottom_m;
 

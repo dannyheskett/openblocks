@@ -47,6 +47,7 @@ static void poll_keyboard(Input* in) {
 // render_touch_button_rects() (matches what render.c draws); native-resolution
 // rendering means touch coords map 1:1 to the buttons.
 static void poll_touch(Input* in) {
+    if (!render_touch_controls_shown()) return; // desktop browsers: keyboard only
     Rectangle b[BTN_COUNT];
     render_touch_button_rects(b);
 
