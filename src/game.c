@@ -270,6 +270,31 @@ static void update_clear_animation(Game* game) {
     }
 }
 
+// Lock the current piece where it sits, credit pending drop points, then either
+// start the line-clear wipe or spawn the next piece (topping out if it can't
+// spawn). Shared by gravity-driven locking and hard drop.
+static void settle_current_piece(Game* game) {
+    lock_piece(game, &game->current_piece);
+    game->events |= EV_LOCK;
+
+    // Drop points (soft and hard) are credited once, here at lock (1 per cell).
+    score_add(&game->score, (uint32_t)game->drop_points);
+    game->drop_points = 0;
+
+    int rows[4];
+    int count = detect_full_rows(game, rows);
+    if (count > 0) {
+        // Play the wipe animation; collapse and spawn happen at its end.
+        start_clear(game, rows, count);
+    } else {
+        spawn_next(game);
+        if (!can_place(game, &game->current_piece)) {
+            game->game_over = true;
+            game->events |= EV_GAMEOVER;
+        }
+    }
+}
+
 void game_update(Game* game) {
     if (game->game_over) return;
 
@@ -300,25 +325,7 @@ void game_update(Game* game) {
                 game->drop_points++; // 1 per soft-dropped cell, tallied for lock
             }
         } else {
-            lock_piece(game, &game->current_piece);
-            game->events |= EV_LOCK;
-
-            // Soft-drop points are credited once, here at lock (1 per cell).
-            score_add(&game->score, (uint32_t)game->drop_points);
-            game->drop_points = 0;
-
-            int rows[4];
-            int count = detect_full_rows(game, rows);
-            if (count > 0) {
-                // Play the wipe animation; collapse and spawn happen at its end.
-                start_clear(game, rows, count);
-            } else {
-                spawn_next(game);
-                if (!can_place(game, &game->current_piece)) {
-                    game->game_over = true;
-                    game->events |= EV_GAMEOVER;
-                }
-            }
+            settle_current_piece(game);
         }
     }
 }
@@ -380,6 +387,20 @@ void game_input(Game* game, InputType input_type) {
             game->current_piece = next;
             game->events |= EV_ROTATE;
         }
+    } else if (input_type == INPUT_HARD_DROP) {
+        // Fall straight down to the lowest valid row, crediting 1 point per cell
+        // (as soft drop does), then lock immediately.
+        int dropped = 0;
+        for (;;) {
+            Piece test = game->current_piece;
+            test.y++;
+            if (!can_place(game, &test)) break;
+            game->current_piece = test;
+            dropped++;
+        }
+        game->drop_points += dropped;
+        game->fall_frames = 0; // don't also apply gravity to the new piece this frame
+        settle_current_piece(game);
     }
 }
 

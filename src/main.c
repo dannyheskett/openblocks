@@ -140,6 +140,7 @@ int main(int argc, char** argv) {
             } else {
                 game_handle_held(game, in.left, in.right, in.down);
                 if (in.rotate_pressed) game_input(game, INPUT_ROTATE);
+                if (in.hard_drop_pressed) game_input(game, INPUT_HARD_DROP);
                 game_update(game);
                 play_event_sounds(game->events);
                 if (game_is_over(game)) state = STATE_GAMEOVER;

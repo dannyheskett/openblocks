@@ -2,6 +2,7 @@
 #define OPENBLOCKS_RENDER_H
 
 #include "game.h"
+#include <raylib.h>
 #include <stdbool.h>
 
 // The game renders to a fixed off-screen canvas that present() integer-scales
@@ -31,5 +32,20 @@ void render_menu(const char* title, const char* const* items, int count,
 
 bool render_window_should_close(void);
 void render_toggle_fullscreen(void);
+
+// On-screen touch controls (Android). The bottom control bar holds a row of
+// four buttons; render.c draws them and input.c hit-tests them, both using the
+// rectangles from render_touch_button_rects() so their geometry never diverges.
+typedef enum {
+    BTN_LEFT,
+    BTN_RIGHT,
+    BTN_ROTATE,
+    BTN_DROP,
+    BTN_COUNT,
+} TouchButton;
+
+// Fill rects[BTN_COUNT] with the current on-screen button rectangles (screen
+// coordinates, which map 1:1 to touches since Android renders at native res).
+void render_touch_button_rects(Rectangle rects[BTN_COUNT]);
 
 #endif

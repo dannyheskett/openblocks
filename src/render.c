@@ -188,17 +188,72 @@ static void present(void) {
 // no letterbox): the title bar is pinned to the top, a proportional HUD sits
 // below it, and the 10x20 playfield uses the largest SQUARE cell that fits the
 // remaining space, centered. Everything derives from the live screen size, so
-// the layout fills any phone.
+// the layout fills any phone. A row of on-screen buttons sits in a bottom
+// control bar (draw_touch_buttons / render_touch_button_rects below).
+
+// Height of the bottom on-screen control bar.
+static int control_bar_h(int h) { return h / 6; }
+
+void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int bar_h = control_bar_h(h);
+    int bar_y = h - bar_h;
+    int gap = w / 40;
+    int bw = (w - gap * (BTN_COUNT + 1)) / BTN_COUNT;
+    int bh = bar_h - gap * 2;
+    for (int i = 0; i < BTN_COUNT; i++) {
+        rects[i] = (Rectangle){ (float)(gap + i * (bw + gap)),
+                                (float)(bar_y + gap), (float)bw, (float)bh };
+    }
+}
+
+// Draw the four control buttons with simple vector icons (DrawPoly triangles are
+// orientation-agnostic, so no vertex-winding concerns). A button lights up while
+// a finger rests on it.
+static void draw_touch_buttons(void) {
+    Rectangle r[BTN_COUNT];
+    render_touch_button_rects(r);
+    int touches = GetTouchPointCount();
+
+    for (int i = 0; i < BTN_COUNT; i++) {
+        bool pressed = false;
+        for (int t = 0; t < touches; t++) {
+            if (CheckCollisionPointRec(GetTouchPosition(t), r[i])) { pressed = true; break; }
+        }
+        DrawRectangleRounded(r[i], 0.25f, 8,
+                             pressed ? (Color){70, 70, 90, 255} : (Color){35, 35, 45, 255});
+        DrawRectangleRoundedLinesEx(r[i], 0.25f, 8, 2.0f, LIGHTGRAY);
+
+        float cx = r[i].x + r[i].width / 2.0f;
+        float cy = r[i].y + r[i].height / 2.0f;
+        float s = (r[i].height < r[i].width ? r[i].height : r[i].width) * 0.30f;
+        Vector2 c = {cx, cy};
+        switch (i) {
+        case BTN_LEFT:  DrawPoly(c, 3, s, 180, WHITE); break; // triangle points left
+        case BTN_RIGHT: DrawPoly(c, 3, s, 0,   WHITE); break; // points right
+        case BTN_ROTATE:
+            DrawRing(c, s * 0.55f, s * 0.85f, 40, 320, 32, WHITE); // C-shaped arrow
+            DrawPoly((Vector2){cx, cy - s * 0.7f}, 3, s * 0.34f, 0, WHITE); // arrowhead
+            break;
+        case BTN_DROP:
+            DrawPoly((Vector2){cx, cy - s * 0.2f}, 3, s, 90, WHITE); // points down
+            DrawRectangle((int)(cx - s), (int)(cy + s * 0.9f), (int)(s * 2), 3, WHITE); // floor
+            break;
+        }
+    }
+}
+
 static void draw_game(const Game* game) {
     int w = GetScreenWidth();
     int h = GetScreenHeight();
     ClearBackground(BLACK);
 
-    int margin   = w / 24;   // side margin
-    int title_h  = h / 22;   // top title bar
-    int hud_h    = h / 9;    // HUD band under the title
+    int margin   = w / 24;               // side margin
+    int title_h  = h / 22;               // top title bar
+    int hud_h    = h / 9;                // HUD band under the title
+    int bar_h    = control_bar_h(h);     // bottom control-button bar
     int bottom_m = h / 40;
-    int avail_h  = h - title_h - hud_h - bottom_m;
+    int avail_h  = h - title_h - hud_h - bar_h - bottom_m;
 
     // Largest square cell that fits 10 wide x 20 tall in the space that remains.
     int cell_w = (w - 2 * margin) / PLAYFIELD_WIDTH;
@@ -270,6 +325,8 @@ static void draw_game(const Game* game) {
             DrawRectangle(play_x, play_y + game->clear_rows[i] * cell, field_w, cell,
                           (Color){255, 255, 255, 90});
     }
+
+    draw_touch_buttons();
 }
 
 #else
