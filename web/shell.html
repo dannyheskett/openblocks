@@ -6,30 +6,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>openblocks</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
-  /* The canvas fills the viewport; touch-action:none lets the game handle all
-     touches (no browser scroll/zoom). */
-  #canvas { display: block; width: 100vw; height: 100vh; touch-action: none; outline: none; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000;
+               overflow: hidden; overscroll-behavior: none; }
+  /* Lock the page so mobile Safari can't rubber-band scroll the canvas. */
+  body { position: fixed; inset: 0; }
+  #canvas { position: fixed; top: 0; left: 0; display: block; touch-action: none; outline: none; }
 </style>
 </head>
 <body>
   <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
   <script>
-    var Module = {
-      canvas: document.getElementById('canvas'),
-      // Size the canvas backing store to the viewport (device pixels) and keep it
-      // in sync on rotate/resize. raylib is built with FLAG_WINDOW_RESIZABLE, so
-      // GetScreenWidth/Height follow the canvas and the layout re-fits.
-      _fit: function () {
-        var c = Module.canvas;
-        var dpr = window.devicePixelRatio || 1;
-        c.width  = Math.floor(window.innerWidth  * dpr);
-        c.height = Math.floor(window.innerHeight * dpr);
-      },
-    };
-    Module._fit();
-    window.addEventListener('resize', function () { Module._fit(); });
-    window.addEventListener('orientationchange', function () { Module._fit(); });
+    // Safari workaround (entirely in Safari's own APIs — raylib is untouched):
+    // raylib's web backend sizes the canvas from window.innerWidth/innerHeight.
+    // On mobile Safari innerHeight is the *large* layout viewport (the area
+    // behind the toolbar), so the bottom of the game (the control buttons) gets
+    // cut off. We shadow innerWidth/innerHeight with the visualViewport size —
+    // the actually-visible area — BEFORE the WASM module loads, so raylib reads
+    // the visible dimensions. Desktop is unaffected (visualViewport == inner*).
+    (function () {
+      var vv = window.visualViewport;
+      if (!vv) return;
+      try {
+        Object.defineProperty(window, 'innerWidth',  { configurable: true, get: function () { return Math.round(vv.width);  } });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, get: function () { return Math.round(vv.height); } });
+      } catch (e) { /* if the browser won't allow it, fall back to native inner* */ }
+    })();
+
+    var Module = { canvas: document.getElementById('canvas') };
+
+    // raylib re-reads the viewport on the window 'resize' event. iOS Safari's
+    // toolbar show/hide fires visualViewport 'resize'/'scroll' but not always a
+    // window 'resize', so bridge those, and nudge once after load for the
+    // initial fit.
+    (function () {
+      var nudge = function () { window.dispatchEvent(new Event('resize')); };
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', nudge);
+        window.visualViewport.addEventListener('scroll', nudge);
+      }
+      window.addEventListener('orientationchange', function () { setTimeout(nudge, 250); });
+      window.addEventListener('load', function () { setTimeout(nudge, 0); setTimeout(nudge, 400); });
+    })();
   </script>
   {{{ SCRIPT }}}
 </body>
