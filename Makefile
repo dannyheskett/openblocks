@@ -147,7 +147,12 @@ ANDROID_JAR    := $(ANDROID_SDK_ROOT)/platforms/android-$(ANDROID_PLATFORM_VER)/
 ANDROID_SRC     := $(filter-out src/encode_h264.c src/encode_mux.c,$(SRC))
 ANDROID_CFLAGS  := -std=c99 -Wall -Wextra -Isrc -DPLATFORM_ANDROID -fPIC \
                    -I$(RAYLIB_ANDROID)/include -I$(NATIVE_APP_GLUE)
+# raylib wraps fopen at link time (-Wl,--wrap=fopen) so file access routes
+# through the Android asset manager; libraylib.a references __real_fopen, which
+# only exists when this flag is present. Without it, dlopen of libopenblocks.so
+# fails at launch with "cannot locate symbol __real_fopen".
 ANDROID_LDFLAGS := -shared -L$(RAYLIB_ANDROID)/lib -lraylib \
+                   -Wl,--wrap=fopen \
                    -llog -landroid -lEGL -lGLESv2 -lOpenSLES -lm -lc -ldl
 
 ANDROID_OBJ_DIR := build/obj-android
