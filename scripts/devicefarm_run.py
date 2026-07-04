@@ -42,6 +42,27 @@ def poll(fn, done, desc, timeout=1800, interval=10):
         time.sleep(interval)
 
 
+def download_media_artifacts(run_arn, out_dir):
+    """Download the run's screenshots and video (skipping logs) so CI can upload
+    them as a workflow artifact for visual inspection."""
+    os.makedirs(out_dir, exist_ok=True)
+    n = 0
+    for job in df.list_jobs(arn=run_arn)["jobs"]:
+        for suite in df.list_suites(arn=job["arn"])["suites"]:
+            sname = suite["name"].replace(" ", "_")
+            for test in df.list_tests(arn=suite["arn"])["tests"]:
+                for atype in ("SCREENSHOT", "FILE"):
+                    for a in df.list_artifacts(arn=test["arn"], type=atype)["artifacts"]:
+                        ext = (a.get("extension") or "").lower()
+                        if ext not in ("mp4", "png", "jpg", "jpeg"):
+                            continue
+                        name = a["name"].replace(" ", "_")
+                        fn = os.path.join(out_dir, f"{sname}-{name}.{ext}")
+                        urllib.request.urlretrieve(a["url"], fn)
+                        n += 1
+    print(f"downloaded {n} media artifact(s) to {out_dir}", flush=True)
+
+
 def main():
     # 1) Register an upload slot and PUT the APK to the presigned URL.
     up = df.create_upload(
@@ -95,6 +116,11 @@ def main():
     )
     c = run.get("counters", {})
     print(f"run result: {run['result']}  counters={c}", flush=True)
+
+    art_dir = os.environ.get("DEVICEFARM_ARTIFACT_DIR")
+    if art_dir:
+        download_media_artifacts(run["arn"], art_dir)
+
     if run["result"] != "PASSED":
         sys.exit(f"Device Farm run did not pass: {run['result']}")
 

@@ -55,6 +55,14 @@ jobs:
           DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
           APK_PATH: build/openblocks.apk
           DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
+          DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
         run: |
           python3 -m pip install --quiet boto3
           python3 scripts/devicefarm_run.py
+      - name: Upload Device Farm screenshots/video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devicefarm-media
+          path: devicefarm-artifacts
+          if-no-files-found: ignore
