@@ -38,20 +38,22 @@ static id<MTLTexture>         s_atlas;
 
 static std::vector<GVert> s_verts;
 static float s_cr = 0, s_cg = 0, s_cb = 0, s_ca = 1; // clear colour
-static int   s_vw = 1, s_vh = 1;                      // viewport (drawable px)
+static int   s_fw = 1, s_fh = 1;                      // full drawable (px)
+static int   s_ox = 0, s_oy = 0;                      // safe-area origin (px)
 
 static const char* kShader = R"(
 #include <metal_stdlib>
 using namespace metal;
 struct Vertex   { packed_float2 pos; packed_float2 uv; packed_float4 color; };
-struct Uniforms { float2 viewport; };
+struct Uniforms { float2 viewport; float2 origin; };
 struct VOut     { float4 position [[position]]; float2 uv; float4 color; };
 vertex VOut v_main(uint vid [[vertex_id]],
                    const device Vertex* verts [[buffer(0)]],
                    constant Uniforms& u [[buffer(1)]]) {
     Vertex v = verts[vid];
-    float2 ndc = float2(v.pos.x / u.viewport.x * 2.0 - 1.0,
-                        1.0 - v.pos.y / u.viewport.y * 2.0);
+    float2 p = v.pos + u.origin; // shift the game's (0,0) to the safe-area corner
+    float2 ndc = float2(p.x / u.viewport.x * 2.0 - 1.0,
+                        1.0 - p.y / u.viewport.y * 2.0);
     VOut o; o.position = float4(ndc, 0.0, 1.0); o.uv = v.uv; o.color = v.color; return o;
 }
 fragment float4 f_main(VOut in [[stage_in]],
@@ -134,9 +136,11 @@ void gfx_metal_attach(CAMetalLayer* layer) {
     build_font_atlas();
 }
 
-void gfx_metal_resize(int width_px, int height_px) {
-    s_vw = width_px > 0 ? width_px : 1;
-    s_vh = height_px > 0 ? height_px : 1;
+void gfx_metal_set_viewport(int full_w, int full_h, int origin_x, int origin_y) {
+    s_fw = full_w > 0 ? full_w : 1;
+    s_fh = full_h > 0 ? full_h : 1;
+    s_ox = origin_x;
+    s_oy = origin_y;
 }
 
 // --- Vertex helpers ---------------------------------------------------------
@@ -188,7 +192,7 @@ void gfx_end_frame(void) {
         id<MTLBuffer> vb = [s_device newBufferWithBytes:s_verts.data()
                                                  length:s_verts.size() * sizeof(GVert)
                                                 options:MTLResourceStorageModeShared];
-        float uni[2] = { (float)s_vw, (float)s_vh };
+        float uni[4] = { (float)s_fw, (float)s_fh, (float)s_ox, (float)s_oy };
         [enc setRenderPipelineState:s_pipeline];
         [enc setVertexBuffer:vb offset:0 atIndex:0];
         [enc setVertexBytes:uni length:sizeof(uni) atIndex:1];

@@ -7,6 +7,8 @@
 // pixels. Called from the iOS app shell (ios_main.mm). The gfx_* primitives
 // (gfx.h) are implemented on top of this in gfx_metal.mm.
 void gfx_metal_attach(CAMetalLayer* layer);
-void gfx_metal_resize(int width_px, int height_px);
+// Full drawable size (px) plus the origin (px) the game's (0,0) maps to — the
+// safe-area top-left, so drawing sits below the notch / above the home indicator.
+void gfx_metal_set_viewport(int full_w, int full_h, int origin_x, int origin_y);
 
 #endif // OPENBLOCKS_GFX_METAL_H
