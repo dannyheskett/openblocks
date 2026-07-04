@@ -539,9 +539,11 @@ static void draw_center_panel_at(int w, int h, int panel_w, int panel_h, int ts,
 #ifdef OB_PORTRAIT
 static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {
     int w = GetScreenWidth(), h = GetScreenHeight();
-    draw_center_panel_at(w, h, w * 72 / 100, h * 16 / 100, h * 16 / 100 * 28 / 100,
-                         h * 16 / 100 * 13 / 100, h * 16 / 100 * 24 / 100,
-                         h * 16 / 100 * 62 / 100, title, subtitle, tc);
+    int base = (w < h) ? w : h;   // keep the dialog compact even in a wide window
+    int pw = base * 82 / 100;
+    int ph = base * 26 / 100;
+    draw_center_panel_at(w, h, pw, ph, ph * 28 / 100, ph * 13 / 100,
+                         ph * 24 / 100, ph * 62 / 100, title, subtitle, tc);
 }
 #endif
 #ifdef OB_LANDSCAPE
@@ -588,7 +590,8 @@ static void render_menu_portrait(const char* title, const char* const* items, in
     int line_h = h / 20;
     int item_fs = h / 28;
     int extra = (gap_before >= 0) ? 1 : 0;
-    int panel_w = w * 72 / 100;
+    int base = (w < h) ? w : h;      // keep the panel compact even in a wide window
+    int panel_w = base * 82 / 100;
 
     // Shrink the title if it would overrun the panel (wide tablets).
     int title_size = h / 16;
