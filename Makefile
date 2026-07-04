@@ -324,33 +324,54 @@ $(WEB_OUT): $(WEB_SRC) $(wildcard src/*.h) web/shell.html | $(WEB_OUT_DIR)
 	@echo "[web] built $@"
 
 # ---------------------------------------------------------------------------
-# iOS (native Metal, no raylib) — Simulator build. CI-only: needs Xcode on a
-# macOS runner. This phase builds a minimal Metal app (clears the screen) to
-# prove the toolchain + Metal render in the Simulator; the Simulator needs no
-# code signing. The .app is assembled by hand (clang + Info.plist), no Xcode
-# project — mirroring the no-Gradle Android approach. Later phases add the game
-# TUs (compiled -DPLATFORM_IOS) and the real Metal primitives.
+# iOS (native Metal, no raylib). CI-only: needs Xcode on a macOS runner. The
+# shared game TUs compile -DPLATFORM_IOS (portrait touch renderer, no raylib);
+# the ios/ Objective-C++ files provide the Metal renderer, the platform/touch
+# layer, and the UIKit app shell. Two products:
+#   ios-sim  — Simulator .app (arm64 simulator, unsigned) for CI screenshots.
+#   ios      — device .ipa (arm64, unsigned). AWS Device Farm re-signs it with
+#              its own profile, so it needs no Apple Developer account.
+# The .app/.ipa are assembled by hand (clang + Info.plist + zip), no Xcode
+# project — mirroring the no-Gradle Android approach. C sources are built with
+# clang (C99); the .mm sources with clang++ (Obj-C++); linked with clang++.
 # ---------------------------------------------------------------------------
 IOS_MIN        ?= 13.0
 IOS_APP_NAME   := Openblocks
-IOS_SIM_BUILD  := build/ios-sim
-IOS_SIM_APP    := $(IOS_SIM_BUILD)/$(IOS_APP_NAME).app
-IOS_SRC        := ios/ios_main.mm ios/gfx_metal.mm
-IOS_FRAMEWORKS := -framework UIKit -framework Metal -framework QuartzCore -framework Foundation
+IOS_C_SRC      := src/game.c src/main.c src/render.c src/input.c src/sound.c src/recorder.c
+IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm
+IOS_CFLAGS     := -std=c99   -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
+IOS_MMFLAGS    := -std=c++14 -fobjc-arc -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
+IOS_FRAMEWORKS := -framework UIKit -framework Metal -framework QuartzCore \
+                  -framework CoreGraphics -framework Foundation
+IOS_DEPS       := $(IOS_C_SRC) $(IOS_MM_SRC) $(wildcard src/*.h ios/*.h) ios/Info.plist
 
+# $(call ios_build,<sdk>,<target-triple>,<app-dir>,<obj-dir>) — compile + link
+# the app binary into <app-dir>/$(IOS_APP_NAME) and copy the Info.plist.
+define ios_build
+	@rm -rf $(4) && mkdir -p $(3) $(4)
+	for f in $(IOS_C_SRC);  do xcrun -sdk $(1) clang   -target $(2) $(IOS_CFLAGS)  -c $$f -o $(4)/$$(basename $$f .c).o  || exit 1; done
+	for f in $(IOS_MM_SRC); do xcrun -sdk $(1) clang++ -target $(2) $(IOS_MMFLAGS) -c $$f -o $(4)/$$(basename $$f .mm).o || exit 1; done
+	xcrun -sdk $(1) clang++ -target $(2) $(4)/*.o $(IOS_FRAMEWORKS) -o $(3)/$(IOS_APP_NAME)
+	cp ios/Info.plist $(3)/Info.plist
+endef
+
+IOS_SIM_APP := build/ios-sim/$(IOS_APP_NAME).app
 ios-sim: $(IOS_SIM_APP)
-
-$(IOS_SIM_APP): $(IOS_SRC) $(wildcard ios/*.h) src/gfx.h src/ob_types.h ios/Info.plist
-	@rm -rf $(IOS_SIM_APP) && mkdir -p $(IOS_SIM_APP)
-	# clang++ (not clang): the sources are Objective-C++ (.mm), so the C++ runtime
-	# (libc++) must be linked, else ___gxx_personality_v0 is undefined.
-	xcrun -sdk iphonesimulator clang++ -arch arm64 \
-	    -target arm64-apple-ios$(IOS_MIN)-simulator -fobjc-arc -fmodules \
-	    -Isrc -Iios -DPLATFORM_IOS -O2 \
-	    $(IOS_SRC) $(IOS_FRAMEWORKS) \
-	    -o $(IOS_SIM_APP)/$(IOS_APP_NAME)
-	cp ios/Info.plist $(IOS_SIM_APP)/Info.plist
+$(IOS_SIM_APP): $(IOS_DEPS)
+	$(call ios_build,iphonesimulator,arm64-apple-ios$(IOS_MIN)-simulator,build/ios-sim/$(IOS_APP_NAME).app,build/ios-sim/obj)
 	@echo "[ios] built $(IOS_SIM_APP)"
+
+# Device .ipa: unsigned; a .ipa is just a zip of Payload/<App>.app.
+IOS_IPA := build/openblocks.ipa
+ios: $(IOS_IPA)
+$(IOS_IPA): $(IOS_DEPS)
+	$(call ios_build,iphoneos,arm64-apple-ios$(IOS_MIN),build/ios-device/Payload/$(IOS_APP_NAME).app,build/ios-device/obj)
+	cd build/ios-device && rm -f ../openblocks.ipa && zip -qr ../openblocks.ipa Payload
+	@echo "[ios] built $(IOS_IPA) (unsigned; AWS Device Farm re-signs on upload)"
+
+dist-ios: $(IOS_IPA)
+	@mkdir -p $(DIST)
+	cp $(IOS_IPA) $(DIST)/openblocks-$(VERSION_SLUG)-ios-arm64.ipa
 
 # ---------------------------------------------------------------------------
 # Unit tests (game logic only — no raylib/window needed). The test TU includes

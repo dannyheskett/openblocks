@@ -1,7 +1,9 @@
 #include "render.h"
 #include "gfx.h"
 #include "recorder.h"
-#include <raylib.h>
+#if !defined(PLATFORM_IOS)
+#include <raylib.h>  // window/timing + the landscape RenderTexture path; absent on iOS
+#endif
 
 #define CELL_SIZE 20
 #define BORDER_WIDTH 2
@@ -115,6 +117,10 @@ static void draw_piece_centered(int piece_type, int rotation, int box_x, int box
 }
 
 void render_init(void) {
+#if defined(PLATFORM_IOS)
+    // iOS: UIKit owns the window/surface and drives the loop (CADisplayLink); the
+    // Metal layer is attached separately by the app shell. Nothing to do here.
+#else
 #if defined(PLATFORM_ANDROID)
     // Request immersive fullscreen so the app draws under the status bar / camera
     // cutout (paired with windowLayoutInDisplayCutoutMode=shortEdges in the theme)
@@ -133,11 +139,12 @@ void render_init(void) {
 #ifdef OB_LANDSCAPE
     canvas = LoadRenderTexture(BASE_WIDTH, BASE_HEIGHT);
 #endif
+#endif // PLATFORM_IOS
 }
 
 void render_toggle_fullscreen(void) {
-#ifdef PLATFORM_ANDROID
-    // Android apps are always fullscreen; nothing to toggle.
+#if defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
+    // Android / iOS apps are always fullscreen; nothing to toggle.
     (void)0;
 }
 #else
@@ -158,7 +165,9 @@ void render_cleanup(void) {
 #ifdef OB_LANDSCAPE
     UnloadRenderTexture(canvas);
 #endif
+#if !defined(PLATFORM_IOS)
     CloseWindow();
+#endif
 }
 
 #ifdef OB_LANDSCAPE

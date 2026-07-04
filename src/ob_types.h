@@ -35,10 +35,6 @@ static inline bool CheckCollisionPointRec(Vector2 p, Rectangle r) {
            p.y >= r.y && p.y < r.y + r.height;
 }
 
-// printf-style transient formatter, matching raylib's TextFormat semantics
-// (returns a pointer into an internal rotating buffer). Implemented in plat_ios.
-const char* TextFormat(const char* text, ...);
-
 // Gesture ids (values match raylib's enum so input.c comparisons are unchanged).
 enum {
     GESTURE_TAP        = 1,
@@ -47,8 +43,14 @@ enum {
     GESTURE_SWIPE_DOWN = 32,
 };
 
-// Queries implemented by plat_ios (UIKit-backed), same names/semantics raylib
-// exposes, so render.c / input.c call sites need no changes.
+// These are defined in Objective-C++ (plat_ios.mm) but called from the C game
+// code, so they need C linkage to link. TextFormat matches raylib's semantics
+// (a pointer into an internal rotating buffer); the queries are UIKit-backed and
+// keep raylib's names so render.c / input.c call sites are unchanged.
+#ifdef __cplusplus
+extern "C" {
+#endif
+const char* TextFormat(const char* text, ...);
 int     GetScreenWidth(void);
 int     GetScreenHeight(void);
 int     GetTouchPointCount(void);
@@ -57,6 +59,9 @@ int     GetGestureDetected(void);
 double  GetTime(void);
 bool    IsWindowFocused(void);
 bool    WindowShouldClose(void);
+#ifdef __cplusplus
+}
+#endif
 
 #endif // PLATFORM_IOS
 

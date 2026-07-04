@@ -221,6 +221,8 @@ bool recorder_start(const char* path)                { (void)path; return false;
 void recorder_stop(void)                             { }
 bool recorder_toggle(void)                           { return false; }
 bool recorder_active(void)                           { return false; }
+#if !defined(PLATFORM_IOS)
 void recorder_capture(const RenderTexture2D* canvas) { (void)canvas; }
+#endif
 
 #endif // PLATFORM_ANDROID

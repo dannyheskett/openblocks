@@ -1,7 +1,9 @@
 #include "input.h"
 #include "render.h"
 #include "platform.h"
-#include <raylib.h>
+#if !defined(PLATFORM_IOS)
+#include <raylib.h>  // keyboard/mouse; iOS is touch-only (queries come from plat_ios)
+#endif
 
 // input_poll() composes up to two sources into one Input:
 //   - keyboard: desktop native builds and the web build (PC browsers)
@@ -10,7 +12,7 @@
 // browser uses the keyboard — same binary. Android runs only touch; desktop
 // native runs only keyboard.
 
-#if !defined(PLATFORM_ANDROID)
+#if !defined(PLATFORM_ANDROID) && !defined(PLATFORM_IOS)
 // Keyboard source: sets the base field values.
 static void poll_keyboard(Input* in) {
     bool alt = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
@@ -63,13 +65,20 @@ static void poll_touch(Input* in) {
     Vector2 pts[8];
     int np = 0;
     for (int i = 0; i < n && np < 8; i++) pts[np++] = GetTouchPosition(i);
+#if !defined(PLATFORM_IOS)
+    // Desktop browsers report a mouse, not a touch point; fold it in so the
+    // on-screen buttons work with a click. iOS has no mouse.
     if (n == 0 && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) pts[np++] = GetMousePosition();
+#endif
 
     if (np > 0) {
         last_pos = pts[0];
-    } else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+    }
+#if !defined(PLATFORM_IOS)
+    else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
         last_pos = GetMousePosition(); // remember where a click ended, for the tap below
     }
+#endif
 
     // Held buttons (scan every active pointer so you can hold a direction + tap).
     bool drop_touch = false;
@@ -109,17 +118,20 @@ static void poll_touch(Input* in) {
     if (g == GESTURE_SWIPE_UP)   in->menu_up   = true;
     if (g == GESTURE_SWIPE_DOWN) in->menu_down = true;
 
+#if !defined(PLATFORM_IOS)
     // Android hardware/gesture Back button (KEY_BACK); harmless no-op on web.
+    // iOS has no key events (and no hardware back button).
     if (IsKeyPressed(KEY_BACK)) {
         in->escape_pressed = true;
         in->any_pressed    = true;
     }
+#endif
 }
 #endif // OB_TOUCH
 
 Input input_poll(void) {
     Input in = {0};
-#if !defined(PLATFORM_ANDROID)
+#if !defined(PLATFORM_ANDROID) && !defined(PLATFORM_IOS)
     poll_keyboard(&in);   // desktop native + web (PC browsers)
 #endif
 #ifdef OB_TOUCH
