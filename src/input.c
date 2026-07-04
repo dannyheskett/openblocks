@@ -56,16 +56,27 @@ static void poll_touch(Input* in) {
     static Vector2 last_pos = {0, 0};
     const double DROP_TAP_MAX = 0.14; // hold longer than this = soft drop, not a tap
 
+    // Active pointers: touch points, or the mouse while its button is held.
+    // Desktop browsers report no touch points for a mouse, so without this the
+    // on-screen buttons never register and every click falls through to rotate.
     int n = GetTouchPointCount();
-    if (n > 0) last_pos = GetTouchPosition(0);
+    Vector2 pts[8];
+    int np = 0;
+    for (int i = 0; i < n && np < 8; i++) pts[np++] = GetTouchPosition(i);
+    if (n == 0 && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) pts[np++] = GetMousePosition();
 
-    // Held buttons (scan every touch point so you can hold a direction + tap).
+    if (np > 0) {
+        last_pos = pts[0];
+    } else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        last_pos = GetMousePosition(); // remember where a click ended, for the tap below
+    }
+
+    // Held buttons (scan every active pointer so you can hold a direction + tap).
     bool drop_touch = false;
-    for (int i = 0; i < n; i++) {
-        Vector2 p = GetTouchPosition(i);
-        if (CheckCollisionPointRec(p, b[BTN_LEFT]))  in->left  = true;
-        if (CheckCollisionPointRec(p, b[BTN_RIGHT])) in->right = true;
-        if (CheckCollisionPointRec(p, b[BTN_DROP]))  drop_touch  = true;
+    for (int i = 0; i < np; i++) {
+        if (CheckCollisionPointRec(pts[i], b[BTN_LEFT]))  in->left  = true;
+        if (CheckCollisionPointRec(pts[i], b[BTN_RIGHT])) in->right = true;
+        if (CheckCollisionPointRec(pts[i], b[BTN_DROP]))  drop_touch  = true;
     }
 
     // DROP held past the tap window = soft drop; a quick tap = hard drop (below).
