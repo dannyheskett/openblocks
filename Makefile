@@ -361,11 +361,23 @@ $(IOS_SIM_APP): $(IOS_DEPS)
 	$(call ios_build,iphonesimulator,arm64-apple-ios$(IOS_MIN)-simulator,build/ios-sim/$(IOS_APP_NAME).app,build/ios-sim/obj)
 	@echo "[ios] built $(IOS_SIM_APP)"
 
-# Device .ipa: unsigned; a .ipa is just a zip of Payload/<App>.app.
+# Device .ipa: unsigned; a .ipa is just a zip of Payload/<App>.app. Xcode injects
+# device-platform Info.plist keys that a hand-assembled bundle lacks; add the
+# ones tools require — notably CFBundleSupportedPlatforms, which AWS Device Farm
+# checks on upload ("could not find the platform value in the Info.plist").
 IOS_IPA := build/openblocks.ipa
 ios: $(IOS_IPA)
 $(IOS_IPA): $(IOS_DEPS)
 	$(call ios_build,iphoneos,arm64-apple-ios$(IOS_MIN),build/ios-device/Payload/$(IOS_APP_NAME).app,build/ios-device/obj)
+	plist=build/ios-device/Payload/$(IOS_APP_NAME).app/Info.plist; \
+	/usr/libexec/PlistBuddy \
+	    -c "Add :CFBundleSupportedPlatforms array" \
+	    -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" \
+	    -c "Add :DTPlatformName string iphoneos" \
+	    -c "Add :DTPlatformVersion string $(IOS_MIN)" \
+	    -c "Add :UIRequiredDeviceCapabilities array" \
+	    -c "Add :UIRequiredDeviceCapabilities:0 string arm64" \
+	    "$$plist"
 	cd build/ios-device && rm -f ../openblocks.ipa && zip -qr ../openblocks.ipa Payload
 	@echo "[ios] built $(IOS_IPA) (unsigned; AWS Device Farm re-signs on upload)"
 
