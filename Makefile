@@ -274,6 +274,19 @@ dist-mac: $(OUT_MAC)
 	cp $(DOCS) $(STAGING)/mac/openblocks-$(VERSION_SLUG)/
 	(cd $(STAGING)/mac && zip -qr ../../../$(DIST)/openblocks-$(VERSION_SLUG)-macos-universal.zip openblocks-$(VERSION_SLUG))
 
+# The APK is a self-contained installable, so it ships as-is (versioned name).
+dist-android: $(ANDROID_APK)
+	@mkdir -p $(DIST)
+	cp $(ANDROID_APK) $(DIST)/openblocks-$(VERSION_SLUG)-android-arm64.apk
+
+# The web build ships as a zip of the HTML/JS/WASM (serve over http to play).
+dist-web: $(WEB_OUT)
+	@rm -rf $(STAGING)/web && mkdir -p $(STAGING)/web/openblocks-$(VERSION_SLUG)-web $(DIST)
+	cp $(WEB_OUT_DIR)/openblocks.html $(WEB_OUT_DIR)/openblocks.js $(WEB_OUT_DIR)/openblocks.wasm \
+	    $(STAGING)/web/openblocks-$(VERSION_SLUG)-web/
+	cp $(DOCS) $(STAGING)/web/openblocks-$(VERSION_SLUG)-web/
+	(cd $(STAGING)/web && zip -qr ../../../$(DIST)/openblocks-$(VERSION_SLUG)-web-wasm.zip openblocks-$(VERSION_SLUG)-web)
+
 # ---------------------------------------------------------------------------
 $(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR) $(MAC_OBJ_DIR) $(ANDROID_OBJ_DIR) $(WEB_OUT_DIR):
 	mkdir -p $@
