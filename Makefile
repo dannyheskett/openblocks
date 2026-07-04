@@ -181,6 +181,15 @@ ANDROID_LIB      := $(ANDROID_APK_DIR)/lib/$(ANDROID_ABI)/libopenblocks.so
 ANDROID_APK      := build/openblocks.apk
 ANDROID_KEYSTORE ?= build/debug.keystore
 
+# One tiny Java class (OpenblocksActivity, a NativeActivity subclass that hides
+# the system bars for a truly full-screen game) is compiled to a classes.dex and
+# bundled. No Gradle: javac -> d8, both from the JDK + SDK build-tools already on
+# the CI runner. The C game is unchanged; the activity just sets up immersive
+# mode and NativeActivity loads libopenblocks.so as before.
+ANDROID_JAVA_SRC := android/java/com/openblocks/game/OpenblocksActivity.java
+ANDROID_DEX      := build/dex/classes.dex
+JAVAC            ?= javac
+
 android: $(ANDROID_APK)
 
 $(ANDROID_OBJ_DIR)/native_app_glue.o: $(NATIVE_APP_GLUE)/android_native_app_glue.c | $(ANDROID_OBJ_DIR)
@@ -194,6 +203,17 @@ $(ANDROID_LIB): $(ANDROID_OBJ)
 	$(ANDROID_CC) $(ANDROID_OBJ) -o $@ $(ANDROID_LDFLAGS)
 	@scripts/check_elf_align.sh $(ANDROID_TOOLCHAIN)/bin/llvm-readelf $@
 
+# Compile OpenblocksActivity.java against the platform jar, then dex it. d8 emits
+# classes.dex into build/dex/. -source/-target 8 keeps the bytecode dex-friendly;
+# android.jar on the classpath resolves the framework APIs (java.* comes from the
+# JDK's own boot classpath).
+$(ANDROID_DEX): $(ANDROID_JAVA_SRC)
+	@rm -rf build/java-classes && mkdir -p build/java-classes $(dir $@)
+	$(JAVAC) -source 1.8 -target 1.8 -Xlint:-options \
+	    -classpath $(ANDROID_JAR) -d build/java-classes $(ANDROID_JAVA_SRC)
+	$(ANDROID_SDK_BT)/d8 --min-api $(ANDROID_API) --lib $(ANDROID_JAR) \
+	    --output build/dex build/java-classes/com/openblocks/game/*.class
+
 # Throwaway debug keystore for signing. Real distributable builds sign with a
 # keystore supplied from a CI secret instead.
 $(ANDROID_KEYSTORE):
@@ -202,8 +222,8 @@ $(ANDROID_KEYSTORE):
 	    -alias openblocks -keyalg RSA -keysize 2048 -validity 10000 \
 	    -dname "CN=openblocks, O=openblocks, C=US"
 
-$(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml \
-                android/res/values/styles.xml
+$(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_DEX) $(ANDROID_KEYSTORE) \
+                android/AndroidManifest.xml android/res/values/styles.xml
 	# -S compiles android/res (the custom theme that enables edge-to-edge).
 	$(ANDROID_SDK_BT)/aapt package -f -M android/AndroidManifest.xml \
 	    -S android/res -I $(ANDROID_JAR) \
@@ -212,6 +232,9 @@ $(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml \
 	# Store the native lib at lib/<abi>/ inside the APK (path is relative to cwd).
 	(cd $(ANDROID_APK_DIR) && $(ANDROID_SDK_BT)/aapt add \
 	    ../../build/openblocks.unaligned.apk lib/$(ANDROID_ABI)/libopenblocks.so)
+	# Store classes.dex at the APK root (path relative to cwd = build/dex).
+	(cd build/dex && $(ANDROID_SDK_BT)/aapt add \
+	    ../openblocks.unaligned.apk classes.dex)
 	$(ANDROID_SDK_BT)/zipalign -f 4 \
 	    build/openblocks.unaligned.apk build/openblocks.aligned.apk
 	$(ANDROID_SDK_BT)/apksigner sign --ks $(ANDROID_KEYSTORE) \
@@ -248,9 +271,10 @@ $(BUNDLETOOL):
 	curl -fsSL -o $@ \
 	    https://github.com/google/bundletool/releases/download/$(BUNDLETOOL_VERSION)/bundletool-all-$(BUNDLETOOL_VERSION).jar
 
-$(ANDROID_AAB): $(ANDROID_LIB) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
+$(ANDROID_AAB): $(ANDROID_LIB) $(ANDROID_DEX) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
                 android/AndroidManifest.xml android/res/values/styles.xml
-	@rm -rf build/aab && mkdir -p build/aab/module/manifest build/aab/module/lib/$(ANDROID_ABI)
+	@rm -rf build/aab && mkdir -p build/aab/module/manifest \
+	    build/aab/module/lib/$(ANDROID_ABI) build/aab/module/dex
 	# Compile android/res, then link into a *protobuf* APK (bundletool's input).
 	$(ANDROID_SDK_BT)/aapt2 compile --dir android/res -o build/aab/res.zip
 	$(ANDROID_SDK_BT)/aapt2 link --proto-format -o build/aab/proto.apk \
@@ -263,7 +287,8 @@ $(ANDROID_AAB): $(ANDROID_LIB) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
 	mv build/aab/proto/resources.pb        build/aab/module/resources.pb
 	mv build/aab/proto/res                 build/aab/module/res
 	cp $(ANDROID_LIB) build/aab/module/lib/$(ANDROID_ABI)/libopenblocks.so
-	cd build/aab/module && zip -qr ../module.zip manifest resources.pb res lib
+	cp $(ANDROID_DEX) build/aab/module/dex/classes.dex
+	cd build/aab/module && zip -qr ../module.zip manifest resources.pb res lib dex
 	java -jar $(BUNDLETOOL) build-bundle --modules=build/aab/module.zip --output=$@
 	# Sign the bundle (JAR signature) with the upload key.
 	jarsigner -keystore $(PLAY_KEYSTORE) -storepass $(PLAY_STORE_PASS) \
