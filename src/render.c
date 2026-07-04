@@ -5,8 +5,12 @@
 #define CELL_SIZE 20
 #define BORDER_WIDTH 2
 
+#ifndef PLATFORM_ANDROID
+// Desktop renders to a fixed off-screen canvas that present() integer-scales and
+// letterboxes into the window. Android renders straight to the screen instead.
 static int current_scale = 1;
 static RenderTexture2D canvas;
+#endif
 
 // Repeated playfield colours, named for clarity.
 static const Color BOARD_BG  = {20, 20, 20, 255}; // playfield / NEXT-box fill
@@ -103,7 +107,9 @@ void render_init(void) {
     SetExitKey(KEY_NULL); // Escape is handled by the game, not the window
     SetTargetFPS(60);
 
+#ifndef PLATFORM_ANDROID
     canvas = LoadRenderTexture(BASE_WIDTH, BASE_HEIGHT);
+#endif
 }
 
 void render_toggle_fullscreen(void) {
@@ -126,10 +132,13 @@ void render_toggle_fullscreen(void) {
 #endif // PLATFORM_ANDROID
 
 void render_cleanup(void) {
+#ifndef PLATFORM_ANDROID
     UnloadRenderTexture(canvas);
+#endif
     CloseWindow();
 }
 
+#ifndef PLATFORM_ANDROID
 static int calculate_scale(void) {
     int window_w = GetScreenWidth();
     int window_h = GetScreenHeight();
@@ -171,55 +180,74 @@ static void present(void) {
 
     EndDrawing();
 }
+#endif // PLATFORM_ANDROID: calculate_scale/present are desktop-only
 
 #ifdef PLATFORM_ANDROID
 
-// Portrait phone layout (480x854 canvas): a compact top HUD (SCORE / LINES /
-// LEVEL and the NEXT preview) above a large, centered playfield. The desktop
-// STATISTICS column is dropped — it has no room in a narrow portrait screen.
-#define PORT_CELL 34   // playfield cell size (10x20 field = 340x680)
-
-// Draw the gameplay scene into the currently-active render target.
+// Android renders directly at the device's real resolution (no fixed canvas,
+// no letterbox): the title bar is pinned to the top, a proportional HUD sits
+// below it, and the 10x20 playfield uses the largest SQUARE cell that fits the
+// remaining space, centered. Everything derives from the live screen size, so
+// the layout fills any phone.
 static void draw_game(const Game* game) {
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
     ClearBackground(BLACK);
 
-    int field_w = PLAYFIELD_WIDTH * PORT_CELL;   // 340
-    int field_h = PLAYFIELD_HEIGHT * PORT_CELL;  // 680
-    int play_x = (BASE_WIDTH - field_w) / 2;      // 70
-    int play_y = 164;
+    int margin   = w / 24;   // side margin
+    int title_h  = h / 22;   // top title bar
+    int hud_h    = h / 9;    // HUD band under the title
+    int bottom_m = h / 40;
+    int avail_h  = h - title_h - hud_h - bottom_m;
 
-    // Title bar
-    DrawRectangle(0, 0, BASE_WIDTH, 28, DARKGRAY);
-    DrawText("OPENBLOCKS", (BASE_WIDTH - MeasureText("OPENBLOCKS", 18)) / 2, 6, 18, WHITE);
+    // Largest square cell that fits 10 wide x 20 tall in the space that remains.
+    int cell_w = (w - 2 * margin) / PLAYFIELD_WIDTH;
+    int cell_h = avail_h / PLAYFIELD_HEIGHT;
+    int cell   = (cell_w < cell_h) ? cell_w : cell_h;
+    if (cell < 1) cell = 1;
+    int field_w = cell * PLAYFIELD_WIDTH;
+    int field_h = cell * PLAYFIELD_HEIGHT;
+    int play_x  = (w - field_w) / 2;
+    int play_y  = title_h + hud_h + (avail_h - field_h) / 2;
 
-    // Top HUD: SCORE / LINES stacked at left, LEVEL in the middle, NEXT at right.
-    DrawText("SCORE", 24, 44, 12, WHITE);
-    DrawText(TextFormat("%06u", (unsigned int)game->score), 24, 60, 24, YELLOW);
-    DrawText("LINES", 24, 100, 12, WHITE);
-    DrawText(TextFormat("%3d", game->lines_cleared), 24, 116, 24, YELLOW);
+    // Title bar pinned to the top.
+    int title_fs = title_h * 3 / 5;
+    DrawRectangle(0, 0, w, title_h, DARKGRAY);
+    DrawText("OPENBLOCKS", (w - MeasureText("OPENBLOCKS", title_fs)) / 2,
+             (title_h - title_fs) / 2, title_fs, WHITE);
 
-    DrawText("LEVEL", 180, 44, 12, WHITE);
-    DrawText(TextFormat("%2d", game->level), 180, 60, 24, YELLOW);
+    // HUD band: SCORE / LINES / LEVEL across the left, NEXT preview at the right.
+    int hud_y    = title_h;
+    int label_fs = hud_h / 5;
+    int value_fs = hud_h * 2 / 5;
+    int lab_y    = hud_y + hud_h / 6;
+    int val_y    = hud_y + hud_h * 45 / 100;
+    DrawText("SCORE", margin, lab_y, label_fs, WHITE);
+    DrawText(TextFormat("%06u", (unsigned int)game->score), margin, val_y, value_fs, YELLOW);
+    DrawText("LINES", w * 30 / 100, lab_y, label_fs, WHITE);
+    DrawText(TextFormat("%3d", game->lines_cleared), w * 30 / 100, val_y, value_fs, YELLOW);
+    DrawText("LEVEL", w * 52 / 100, lab_y, label_fs, WHITE);
+    DrawText(TextFormat("%2d", game->level), w * 52 / 100, val_y, value_fs, YELLOW);
 
-    DrawText("NEXT", 336, 44, 12, WHITE);
-    int nbox_cell = 20;
-    int nbox_w = 6 * nbox_cell, nbox_h = 4 * nbox_cell; // 120x80
-    int nbox_x = 336, nbox_y = 60;
+    // NEXT preview box (square mini-cells), right-aligned in the HUD band.
+    int ncell  = hud_h / 6;
+    int nbox_w = ncell * 6, nbox_h = ncell * 4;
+    int nbox_x = w - margin - nbox_w;
+    int nbox_y = hud_y + label_fs + hud_h / 12;
+    DrawText("NEXT", nbox_x, hud_y + hud_h / 12, label_fs, WHITE);
     DrawRectangleLines(nbox_x, nbox_y, nbox_w, nbox_h, LIGHTGRAY);
     DrawRectangle(nbox_x + 1, nbox_y + 1, nbox_w - 2, nbox_h - 2, BOARD_BG);
     Color next_color = color_from_piece(game->next_piece.type, game->level);
-    draw_piece_centered(game->next_piece.type, 0, nbox_x, nbox_y, nbox_w, nbox_h, nbox_cell, next_color);
+    draw_piece_centered(game->next_piece.type, 0, nbox_x, nbox_y, nbox_w, nbox_h, ncell, next_color);
 
     // Playfield: border, background, grid.
     DrawRectangleLines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
                        field_w + BORDER_WIDTH * 2, field_h + BORDER_WIDTH * 2, LIGHTGRAY);
     DrawRectangle(play_x, play_y, field_w, field_h, BOARD_BG);
-    for (int y = 0; y <= PLAYFIELD_HEIGHT; y++) {
-        DrawLine(play_x, play_y + y * PORT_CELL, play_x + field_w, play_y + y * PORT_CELL, GRID_LINE);
-    }
-    for (int x = 0; x <= PLAYFIELD_WIDTH; x++) {
-        DrawLine(play_x + x * PORT_CELL, play_y, play_x + x * PORT_CELL, play_y + field_h, GRID_LINE);
-    }
+    for (int y = 0; y <= PLAYFIELD_HEIGHT; y++)
+        DrawLine(play_x, play_y + y * cell, play_x + field_w, play_y + y * cell, GRID_LINE);
+    for (int x = 0; x <= PLAYFIELD_WIDTH; x++)
+        DrawLine(play_x + x * cell, play_y, play_x + x * cell, play_y + field_h, GRID_LINE);
 
     // Locked cells.
     for (int y = 0; y < PLAYFIELD_HEIGHT; y++) {
@@ -227,9 +255,8 @@ static void draw_game(const Game* game) {
             if (game->cells[y][x]) {
                 int piece_type = game->cells[y][x] - 1;
                 Color col = color_from_piece(piece_type, game->level);
-                int px = play_x + x * PORT_CELL;
-                int py = play_y + y * PORT_CELL;
-                DrawRectangle(px + 1, py + 1, PORT_CELL - 2, PORT_CELL - 2, col);
+                DrawRectangle(play_x + x * cell + 1, play_y + y * cell + 1,
+                              cell - 2, cell - 2, col);
             }
         }
     }
@@ -237,12 +264,11 @@ static void draw_game(const Game* game) {
     // Active piece during play; the four-line clear flashes cleared rows white.
     if (game->phase == PHASE_PLAY) {
         Color piece_color = color_from_piece(game->current_piece.type, game->level);
-        draw_piece_ex(&game->current_piece, play_x, play_y, PORT_CELL, piece_color);
+        draw_piece_ex(&game->current_piece, play_x, play_y, cell, piece_color);
     } else if (game->clear_count >= 4 && (game->clear_step % 2 == 0)) {
-        for (int i = 0; i < game->clear_count; i++) {
-            int py = play_y + game->clear_rows[i] * PORT_CELL;
-            DrawRectangle(play_x, py, field_w, PORT_CELL, (Color){255, 255, 255, 90});
-        }
+        for (int i = 0; i < game->clear_count; i++)
+            DrawRectangle(play_x, play_y + game->clear_rows[i] * cell, field_w, cell,
+                          (Color){255, 255, 255, 90});
     }
 }
 
@@ -359,24 +385,99 @@ static void draw_game(const Game* game) {
 #endif // PLATFORM_ANDROID
 
 // A floating, centered panel with a title and an optional subtitle, drawn over
-// a dimmed background. Shared by the pause and game-over overlays.
+// a dimmed background. Shared by the pause and game-over overlays. Sizes are
+// proportional to the real screen on Android, fixed to the canvas on desktop.
 static void draw_center_panel(const char* title, const char* subtitle, Color title_color) {
-    int cx = BASE_WIDTH / 2;
+#ifdef PLATFORM_ANDROID
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int panel_w = w * 72 / 100, panel_h = h * 16 / 100;
+    int ts = panel_h * 28 / 100, ss = panel_h * 13 / 100;
+    int title_dy = panel_h * 24 / 100, sub_dy = panel_h * 62 / 100;
+#else
+    int w = BASE_WIDTH, h = BASE_HEIGHT;
     int panel_w = 340, panel_h = 120;
+    int ts = 30, ss = 14;
+    int title_dy = 28, sub_dy = 76;
+#endif
+    int cx = w / 2;
     int px = cx - panel_w / 2;
-    int py = (BASE_HEIGHT - panel_h) / 2;
+    int py = (h - panel_h) / 2;
 
-    DrawRectangle(0, 0, BASE_WIDTH, BASE_HEIGHT, (Color){0, 0, 0, 170}); // dim
+    DrawRectangle(0, 0, w, h, (Color){0, 0, 0, 170}); // dim
     DrawRectangle(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
     DrawRectangleLines(px, py, panel_w, panel_h, LIGHTGRAY);
 
-    int ts = 30;
-    DrawText(title, cx - MeasureText(title, ts) / 2, py + 28, ts, title_color);
+    DrawText(title, cx - MeasureText(title, ts) / 2, py + title_dy, ts, title_color);
     if (subtitle) {
-        int ss = 14;
-        DrawText(subtitle, cx - MeasureText(subtitle, ss) / 2, py + 76, ss, GRAY);
+        DrawText(subtitle, cx - MeasureText(subtitle, ss) / 2, py + sub_dy, ss, GRAY);
     }
 }
+
+#ifdef PLATFORM_ANDROID
+
+// Android draws straight to the screen (draw_game clears and lays out at the
+// real device resolution); no offscreen canvas or letterbox.
+void render_frame(const Game* game) {
+    BeginDrawing();
+    draw_game(game);
+    EndDrawing();
+}
+
+void render_pause(const Game* game) {
+    BeginDrawing();
+    draw_game(game);
+    draw_center_panel("GAME PAUSED", "Tap to resume", YELLOW);
+    EndDrawing();
+}
+
+void render_game_over(const Game* game) {
+    BeginDrawing();
+    draw_game(game);
+    draw_center_panel("GAME OVER", "Tap to return to menu", RED);
+    EndDrawing();
+}
+
+void render_menu(const char* title, const char* const* items, int count,
+                 int selected, int gap_before) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    BeginDrawing();
+    ClearBackground(BLACK);
+
+    int cx = w / 2;
+    int title_size = h / 16;
+    int line_h = h / 20;
+    int item_fs = h / 28;
+    int extra = (gap_before >= 0) ? 1 : 0;
+
+    int panel_w = w * 72 / 100;
+    int content_h = title_size + line_h + (count + extra) * line_h;
+    int panel_h = content_h + line_h * 2;
+    int px = cx - panel_w / 2;
+    int py = (h - panel_h) / 2;
+
+    DrawRectangle(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
+    DrawRectangleLines(px, py, panel_w, panel_h, LIGHTGRAY);
+
+    DrawText(title, cx - MeasureText(title, title_size) / 2, py + line_h, title_size, WHITE);
+
+    int y = py + line_h + title_size + line_h;
+    for (int i = 0; i < count; i++) {
+        if (gap_before == i) y += line_h;
+        const char* label = items[i];
+        int lw = MeasureText(label, item_fs);
+        Color col = (i == selected) ? YELLOW : GRAY;
+        if (i == selected) {
+            DrawText(">", cx - lw / 2 - item_fs * 3 / 2, y, item_fs, YELLOW);
+            DrawText("<", cx + lw / 2 + item_fs / 2, y, item_fs, YELLOW);
+        }
+        DrawText(label, cx - lw / 2, y, item_fs, col);
+        y += line_h;
+    }
+
+    EndDrawing();
+}
+
+#else
 
 void render_frame(const Game* game) {
     BeginTextureMode(canvas);
@@ -442,6 +543,8 @@ void render_menu(const char* title, const char* const* items, int count,
     EndTextureMode();
     present();
 }
+
+#endif // PLATFORM_ANDROID
 
 bool render_window_should_close(void) {
     return WindowShouldClose();
