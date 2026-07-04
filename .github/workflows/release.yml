@@ -139,6 +139,30 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zip
       - name: Build raylib (web)
         run: ./scripts/build_raylib_web.sh
+      - name: Build WASM
+        run: make web
+      - name: Publish the hosted build to the site (danheskett.com/dist/openblocks)
+        env:
+          TOKEN: ${{ secrets.SITE_REBUILD_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          rm -rf site-repo
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/dannyheskett/danheskett.git" site-repo
+          dst=site-repo/static/dist/openblocks
+          mkdir -p "$dst"
+          cp build/web/openblocks.html "$dst/index.html"
+          cp build/web/openblocks.js   "$dst/openblocks.js"
+          cp build/web/openblocks.wasm "$dst/openblocks.wasm"
+          cd site-repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/dist/openblocks
+          if git diff --cached --quiet; then
+            echo "hosted WASM unchanged"
+          else
+            git commit -m "openblocks: update hosted WASM to release-${VERSION}"
+            git push
+          fi
       - name: Package WASM bundle
         run: make dist-web OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
       - uses: actions/upload-artifact@v4
