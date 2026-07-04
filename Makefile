@@ -212,7 +212,10 @@ RAYLIB_WEB := third_party/raylib-install-web
 WEB_SRC     := $(filter-out src/encode_h264.c src/encode_mux.c,$(SRC))
 WEB_CFLAGS  := -std=c99 -Wall -Wextra -Isrc -DPLATFORM_WEB -Os \
                -I$(RAYLIB_WEB)/include
-WEB_LDFLAGS := -Os -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 \
+# Fixed memory (not ALLOW_MEMORY_GROWTH): a growable WASM heap yields resizable
+# ArrayBuffers, which modern browsers reject in WebGL texImage2D. 64 MiB is ample
+# for this game.
+WEB_LDFLAGS := -Os -sUSE_GLFW=3 -sINITIAL_MEMORY=67108864 \
                --shell-file web/shell.html $(RAYLIB_WEB)/lib/libraylib.a
 
 WEB_OUT_DIR := build/web
