@@ -132,8 +132,19 @@ $(OUT_MAC): $(MAC_OBJ)
 # ---------------------------------------------------------------------------
 ANDROID_API          ?= 24
 ANDROID_ABI          := arm64-v8a
-ANDROID_BUILD_TOOLS  ?= 34.0.0
-ANDROID_PLATFORM_VER ?= 34
+ANDROID_BUILD_TOOLS  ?= 35.0.0
+ANDROID_PLATFORM_VER ?= 35
+
+# versionCode must be a monotonically increasing integer for Play uploads; drive
+# it off the release number (unique + monotonic). Clamp to >=1 for local builds
+# where OPENBLOCKS_VERSION is 0 (no release tags yet). versionName is the
+# human-facing string. Both are injected at package time (aapt/aapt2 flags), so
+# the manifest values are just fallbacks.
+ANDROID_VERSION_CODE ?= $(OPENBLOCKS_VERSION)
+ifeq ($(ANDROID_VERSION_CODE),0)
+ANDROID_VERSION_CODE := 1
+endif
+ANDROID_VERSION_NAME ?= 1.0.$(ANDROID_VERSION_CODE)
 
 RAYLIB_ANDROID := third_party/raylib-install-android/$(ANDROID_ABI)
 
@@ -188,7 +199,9 @@ $(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml \
                 android/res/values/styles.xml
 	# -S compiles android/res (the custom theme that enables edge-to-edge).
 	$(ANDROID_SDK_BT)/aapt package -f -M android/AndroidManifest.xml \
-	    -S android/res -I $(ANDROID_JAR) -F build/openblocks.unaligned.apk
+	    -S android/res -I $(ANDROID_JAR) \
+	    --version-code $(ANDROID_VERSION_CODE) --version-name $(ANDROID_VERSION_NAME) \
+	    -F build/openblocks.unaligned.apk
 	# Store the native lib at lib/<abi>/ inside the APK (path is relative to cwd).
 	(cd $(ANDROID_APK_DIR) && $(ANDROID_SDK_BT)/aapt add \
 	    ../../build/openblocks.unaligned.apk lib/$(ANDROID_ABI)/libopenblocks.so)
@@ -199,6 +212,57 @@ $(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml \
 	    --out $@ build/openblocks.aligned.apk
 	@rm -f build/openblocks.unaligned.apk build/openblocks.aligned.apk
 	@echo "[android] built $@"
+
+# ---------------------------------------------------------------------------
+# Android App Bundle (.aab) for Google Play. Play only accepts AABs for new
+# apps, and the legacy `aapt` (v1) above cannot emit one, so this path uses
+# `aapt2` (proto resources) + `bundletool`. Kept fully separate from the
+# sideload APK target: same libopenblocks.so, different packaging + a real
+# upload key. Signed with the upload key; Google's Play App Signing re-signs the
+# delivered APKs, so this signature only has to satisfy the Play upload check.
+#
+# Signing defaults to the throwaway debug keystore so `make dist-android-play`
+# works locally to exercise the pipeline; CI overrides PLAY_* with the real
+# upload keystore (from a secret) to produce an uploadable bundle.
+# ---------------------------------------------------------------------------
+ANDROID_AAB        := build/openblocks.aab
+BUNDLETOOL_VERSION ?= 1.17.2
+BUNDLETOOL         ?= build/bundletool.jar
+
+PLAY_KEYSTORE   ?= $(ANDROID_KEYSTORE)
+PLAY_KEY_ALIAS  ?= openblocks
+PLAY_STORE_PASS ?= android
+PLAY_KEY_PASS   ?= android
+
+android-play: $(ANDROID_AAB)
+
+$(BUNDLETOOL):
+	@mkdir -p $(dir $@)
+	curl -fsSL -o $@ \
+	    https://github.com/google/bundletool/releases/download/$(BUNDLETOOL_VERSION)/bundletool-all-$(BUNDLETOOL_VERSION).jar
+
+$(ANDROID_AAB): $(ANDROID_LIB) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
+                android/AndroidManifest.xml android/res/values/styles.xml
+	@rm -rf build/aab && mkdir -p build/aab/module/manifest build/aab/module/lib/$(ANDROID_ABI)
+	# Compile android/res, then link into a *protobuf* APK (bundletool's input).
+	$(ANDROID_SDK_BT)/aapt2 compile --dir android/res -o build/aab/res.zip
+	$(ANDROID_SDK_BT)/aapt2 link --proto-format -o build/aab/proto.apk \
+	    -I $(ANDROID_JAR) --manifest android/AndroidManifest.xml \
+	    -R build/aab/res.zip --auto-add-overlay \
+	    --version-code $(ANDROID_VERSION_CODE) --version-name $(ANDROID_VERSION_NAME)
+	# Re-lay the proto APK into bundletool's base-module layout, add the .so.
+	cd build/aab && unzip -qo proto.apk -d proto
+	mv build/aab/proto/AndroidManifest.xml build/aab/module/manifest/AndroidManifest.xml
+	mv build/aab/proto/resources.pb        build/aab/module/resources.pb
+	mv build/aab/proto/res                 build/aab/module/res
+	cp $(ANDROID_LIB) build/aab/module/lib/$(ANDROID_ABI)/libopenblocks.so
+	cd build/aab/module && zip -qr ../module.zip manifest resources.pb res lib
+	java -jar $(BUNDLETOOL) build-bundle --modules=build/aab/module.zip --output=$@
+	# Sign the bundle (JAR signature) with the upload key.
+	jarsigner -keystore $(PLAY_KEYSTORE) -storepass $(PLAY_STORE_PASS) \
+	    -keypass $(PLAY_KEY_PASS) -sigalg SHA256withRSA -digestalg SHA-256 \
+	    $@ $(PLAY_KEY_ALIAS)
+	@echo "[android] built $@ (versionCode $(ANDROID_VERSION_CODE), versionName $(ANDROID_VERSION_NAME))"
 
 # ---------------------------------------------------------------------------
 # Web build (WebAssembly via Emscripten). CI-only: needs emcc (emsdk) on PATH.
@@ -278,6 +342,11 @@ dist-mac: $(OUT_MAC)
 dist-android: $(ANDROID_APK)
 	@mkdir -p $(DIST)
 	cp $(ANDROID_APK) $(DIST)/openblocks-$(VERSION_SLUG)-android-arm64.apk
+
+# The Play upload artifact: the signed App Bundle (see the android-play target).
+dist-android-play: $(ANDROID_AAB)
+	@mkdir -p $(DIST)
+	cp $(ANDROID_AAB) $(DIST)/openblocks-$(VERSION_SLUG)-android.aab
 
 # The web build ships as a zip of the HTML/JS/WASM (serve over http to play).
 dist-web: $(WEB_OUT)

@@ -93,13 +93,13 @@ jobs:
           path: dist/*
 
   build-android:
-    name: android APK build
+    name: android APK (sideload) + AAB (Play) build
     needs: prepare
     runs-on: ubuntu-22.04
     env:
       NDK_VERSION: "26.3.11579264"
-      ANDROID_BUILD_TOOLS: "34.0.0"
-      ANDROID_PLATFORM_VER: "34"
+      ANDROID_BUILD_TOOLS: "35.0.0"
+      ANDROID_PLATFORM_VER: "35"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
@@ -116,12 +116,35 @@ jobs:
           echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
       - name: Build raylib (Android, arm64-v8a)
         run: ./scripts/build_raylib_android.sh
-      - name: Package APK
+      - name: Package sideload APK (debug-signed)
         run: |
           make dist-android \
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
             ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}" \
             OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
+      # secrets can't be referenced in `if:`, so probe once into an output.
+      - name: Detect Play upload keystore
+        id: playsecret
+        env:
+          K: ${{ secrets.PLAY_UPLOAD_KEYSTORE }}
+        run: echo "present=$([ -n \"$K\" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Package Play bundle (AAB, upload-signed)
+        if: steps.playsecret.outputs.present == 'true'
+        env:
+          PLAY_UPLOAD_KEYSTORE:    ${{ secrets.PLAY_UPLOAD_KEYSTORE }}
+          PLAY_KEY_ALIAS:          ${{ secrets.PLAY_KEY_ALIAS }}
+          PLAY_KEYSTORE_PASSWORD:  ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
+          PLAY_KEY_PASSWORD:       ${{ secrets.PLAY_KEY_PASSWORD }}
+        run: |
+          echo "$PLAY_UPLOAD_KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          make dist-android-play \
+            ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
+            ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}" \
+            OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }} \
+            PLAY_KEYSTORE="$RUNNER_TEMP/upload.jks" \
+            PLAY_KEY_ALIAS="$PLAY_KEY_ALIAS" \
+            PLAY_STORE_PASS="$PLAY_KEYSTORE_PASSWORD" \
+            PLAY_KEY_PASS="$PLAY_KEY_PASSWORD"
       - uses: actions/upload-artifact@v4
         with:
           name: android
