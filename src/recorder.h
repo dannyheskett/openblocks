@@ -2,7 +2,9 @@
 #define OPENBLOCKS_RECORDER_H
 
 #include <stdbool.h>
-#include <raylib.h>
+#if !defined(PLATFORM_IOS)
+#include <raylib.h>  // for RenderTexture2D (recorder_capture); absent on iOS
+#endif
 
 // Frame-fidelity movie recorder. When active, every presented frame is read
 // back from the fixed 640x480 canvas, converted to YUV, encoded as H.264
@@ -28,6 +30,10 @@ bool recorder_toggle(void);
 bool recorder_active(void);
 
 // Read back the canvas and encode one frame. No-op when not recording.
+// (Landscape/desktop only — the canvas type is a raylib RenderTexture2D, which
+// the iOS build has no equivalent for; iOS never records.)
+#if !defined(PLATFORM_IOS)
 void recorder_capture(const RenderTexture2D* canvas);
+#endif
 
 #endif

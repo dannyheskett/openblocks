@@ -1,4 +1,17 @@
 #include "sound.h"
+
+#if defined(PLATFORM_IOS)
+
+// iOS: the audio backend is not wired yet. The game is fully playable silent;
+// an AVAudioEngine backend is a follow-up. Silent no-op stubs keep the API.
+void sound_init(void)     {}
+void sound_shutdown(void) {}
+bool sound_is_enabled(void) { return false; }
+void sound_toggle(void)   {}
+void sound_play(SfxId id) { (void)id; }
+
+#else
+
 #include <raylib.h>
 #include <math.h>
 #include <stdint.h>
@@ -131,3 +144,5 @@ void sound_play(SfxId id) {
     if (!enabled || !audio_ready || id < 0 || id >= SFX_COUNT) return;
     PlaySound(effects[id]);
 }
+
+#endif // PLATFORM_IOS

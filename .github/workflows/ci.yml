@@ -149,3 +149,10 @@ jobs:
         with:
           name: ios-sim-screenshot
           path: ios-shot.png
+      - name: Build device .ipa (unsigned — AWS Device Farm re-signs)
+        run: make ios
+      - name: Upload device .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: openblocks-ios-ipa
+          path: build/openblocks.ipa

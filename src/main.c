@@ -3,6 +3,7 @@
 #include "input.h"
 #include "sound.h"
 #include "recorder.h"
+#include "app.h"
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -198,6 +199,27 @@ static void frame_step(void* arg) {
     }
 }
 
+#if defined(PLATFORM_IOS)
+
+// iOS: UIKit provides main() and the run loop, so the normal main() below is
+// compiled out. The app shell (ios_main.mm) sets up the Metal layer, calls
+// ob_app_init() once, then ob_app_frame() from a CADisplayLink each frame.
+static AppCtx ios_ctx;
+
+void ob_app_init(void) {
+    srand((unsigned int)time(NULL));
+    render_init();   // no-op on iOS (UIKit owns the window)
+    sound_init();    // silent stub on iOS
+    ios_ctx.game = NULL;
+    ios_ctx.state = STATE_MENU;
+    ios_ctx.selected = 0;
+    ios_ctx.quit = false;
+}
+
+void ob_app_frame(void) { frame_step(&ios_ctx); }
+
+#else
+
 int main(int argc, char** argv) {
     srand((unsigned int)time(NULL)); // seed the piece randomizer once at startup
 
@@ -250,3 +272,5 @@ int main(int argc, char** argv) {
 #endif
     return 0;
 }
+
+#endif // PLATFORM_IOS (main() is compiled out on iOS)
