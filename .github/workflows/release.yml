@@ -72,7 +72,7 @@ jobs:
         run: ./scripts/build_raylib_windows.sh
       - name: Package Linux + Windows archives
         run: make dist-linux dist-windows OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-windows
           path: dist/*
@@ -87,7 +87,7 @@ jobs:
         run: ./scripts/build_raylib_mac.sh
       - name: Package macOS archive
         run: make dist-mac OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: dist/*
@@ -102,7 +102,7 @@ jobs:
       # Apple Developer account/signing is needed to test it on a real iPhone.
       - name: Package iOS .ipa
         run: make dist-ios OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios
           path: dist/*
@@ -117,12 +117,12 @@ jobs:
       ANDROID_PLATFORM_VER: "35"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
       - name: Install NDK + build-tools + platform
         run: |
           sdkmanager --install "ndk;${NDK_VERSION}" \
@@ -172,7 +172,7 @@ jobs:
             PLAY_KEY_ALIAS="$PLAY_KEY_ALIAS" \
             PLAY_STORE_PASS="$PLAY_KEYSTORE_PASSWORD" \
             PLAY_KEY_PASS="$PLAY_KEY_PASSWORD"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: dist/*
@@ -184,7 +184,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@v16
       - name: Install zip
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zip
       - name: Build raylib (web)
@@ -215,7 +215,7 @@ jobs:
           fi
       - name: Package WASM bundle
         run: make dist-web OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: dist/*
@@ -229,7 +229,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist-merged
           merge-multiple: true
@@ -244,7 +244,7 @@ jobs:
           git tag "release-$V" "$SHA"
           git push origin "release-$V"
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: release-${{ needs.prepare.outputs.version }}
           name: release-${{ needs.prepare.outputs.version }}

@@ -75,12 +75,12 @@ jobs:
       ANDROID_PLATFORM_VER: "35"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
       - name: Install NDK + build-tools + platform
         run: |
           sdkmanager --install "ndk;${NDK_VERSION}" \
@@ -103,7 +103,7 @@ jobs:
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
             ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openblocks-apk
           path: build/openblocks.apk
@@ -114,13 +114,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@v16
       - name: Build raylib (web)
         run: ./scripts/build_raylib_web.sh
       - name: Build WASM
         run: make web
       - name: Upload web build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openblocks-web
           path: build/web
@@ -145,14 +145,14 @@ jobs:
           sleep 4
           xcrun simctl io "$UDID" screenshot ios-shot.png
       - name: Upload Simulator screenshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-sim-screenshot
           path: ios-shot.png
       - name: Build device .ipa (unsigned — AWS Device Farm re-signs)
         run: make ios
       - name: Upload device .ipa
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openblocks-ios-ipa
           path: build/openblocks.ipa
