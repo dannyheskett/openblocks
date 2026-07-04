@@ -7,6 +7,7 @@
 // (Held movement and soft drop are handled separately via game_handle_held.)
 typedef enum {
     INPUT_ROTATE,
+    INPUT_HARD_DROP,   // slam the piece to the bottom and lock it immediately
 } InputType;
 
 typedef struct {
@@ -15,6 +16,7 @@ typedef struct {
     bool right;           // held state, drives auto-shift
     bool down;            // held state, drives soft drop
     bool rotate_pressed;  // edge-triggered: Space (one rotation per press)
+    bool hard_drop_pressed; // edge-triggered: slam to bottom (Drop button tap)
     bool pause_pressed;   // edge-triggered: Enter
 
     // Menu / overlays
