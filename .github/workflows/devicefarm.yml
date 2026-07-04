@@ -1,0 +1,60 @@
+name: devicefarm
+
+# Manually-triggered real-device smoke test. Builds the Android APK (same as the
+# ci android job) and runs an AWS Device Farm Fuzz test on a real device to
+# confirm openblocks launches and runs without crashing. Manual-only so device
+# minutes are spent deliberately. Auth is via GitHub OIDC — no stored AWS keys.
+on:
+  workflow_dispatch:
+    inputs:
+      max_devices:
+        description: "Number of real devices to fuzz-test on"
+        default: "1"
+        required: false
+
+permissions:
+  id-token: write   # mint the OIDC token to assume the AWS role
+  contents: read
+
+jobs:
+  device-test:
+    name: build APK + Device Farm fuzz
+    runs-on: ubuntu-22.04
+    env:
+      NDK_VERSION: "26.3.11579264"
+      ANDROID_BUILD_TOOLS: "34.0.0"
+      ANDROID_PLATFORM_VER: "34"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install NDK + build-tools + platform
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "platforms;android-${ANDROID_PLATFORM_VER}"
+          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Build raylib (Android, arm64-v8a static)
+        run: ./scripts/build_raylib_android.sh
+      - name: Build APK
+        run: |
+          make android \
+            ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
+            ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+      - name: Device Farm fuzz test
+        env:
+          DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
+          APK_PATH: build/openblocks.apk
+          DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
+        run: |
+          python3 -m pip install --quiet boto3
+          python3 scripts/devicefarm_run.py
