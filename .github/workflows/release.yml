@@ -137,12 +137,24 @@ jobs:
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
             ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}" \
             OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
-      # secrets can't be referenced in `if:`, so probe once into an output.
-      - name: Detect Play upload keystore
+      # secrets can't be referenced in `if:`, so probe once into an output. All
+      # FOUR Play secrets must be present — signing needs the alias + both
+      # passwords, not just the keystore. If any is missing the AAB is skipped
+      # (the sideload APK still ships), so an incomplete Play config never fails
+      # the release.
+      - name: Detect Play signing secrets
         id: playsecret
         env:
-          K: ${{ secrets.PLAY_UPLOAD_KEYSTORE }}
-        run: echo "present=$([ -n \"$K\" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          K:  ${{ secrets.PLAY_UPLOAD_KEYSTORE }}
+          A:  ${{ secrets.PLAY_KEY_ALIAS }}
+          SP: ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
+          KP: ${{ secrets.PLAY_KEY_PASSWORD }}
+        run: |
+          if [ -n "$K" ] && [ -n "$A" ] && [ -n "$SP" ] && [ -n "$KP" ]; then
+            echo "present=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Package Play bundle (AAB, upload-signed)
         if: steps.playsecret.outputs.present == 'true'
         env:
