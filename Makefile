@@ -184,9 +184,11 @@ $(ANDROID_KEYSTORE):
 	    -alias openblocks -keyalg RSA -keysize 2048 -validity 10000 \
 	    -dname "CN=openblocks, O=openblocks, C=US"
 
-$(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml
+$(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml \
+                android/res/values/styles.xml
+	# -S compiles android/res (the custom theme that enables edge-to-edge).
 	$(ANDROID_SDK_BT)/aapt package -f -M android/AndroidManifest.xml \
-	    -I $(ANDROID_JAR) -F build/openblocks.unaligned.apk
+	    -S android/res -I $(ANDROID_JAR) -F build/openblocks.unaligned.apk
 	# Store the native lib at lib/<abi>/ inside the APK (path is relative to cwd).
 	(cd $(ANDROID_APK_DIR) && $(ANDROID_SDK_BT)/aapt add \
 	    ../../build/openblocks.unaligned.apk lib/$(ANDROID_ABI)/libopenblocks.so)
