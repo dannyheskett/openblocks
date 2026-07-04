@@ -13,3 +13,9 @@ third_party/raylib/
 *.swo
 *~
 .playwright-mcp/
+
+# Signing keys must never be committed (Play upload keystore, etc.)
+*.jks
+*.keystore
+*.p12
+*.b64
