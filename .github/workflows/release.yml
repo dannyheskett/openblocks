@@ -92,6 +92,21 @@ jobs:
           name: mac
           path: dist/*
 
+  build-ios:
+    name: iOS device .ipa build
+    needs: prepare
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      # Unsigned arm64 device .ipa. AWS Device Farm re-signs it on upload, so no
+      # Apple Developer account/signing is needed to test it on a real iPhone.
+      - name: Package iOS .ipa
+        run: make dist-ios OPENBLOCKS_VERSION=${{ needs.prepare.outputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/*
+
   build-android:
     name: android APK (sideload) + AAB (Play) build
     needs: prepare
@@ -195,7 +210,7 @@ jobs:
 
   publish:
     name: tag + publish GitHub Release
-    needs: [prepare, build-linux-windows, build-mac, build-android, build-web]
+    needs: [prepare, build-linux-windows, build-mac, build-ios, build-android, build-web]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
