@@ -191,25 +191,36 @@ static void present(void) {
 // the layout fills any phone. A row of on-screen buttons sits in a bottom
 // control bar (draw_touch_buttons / render_touch_button_rects below).
 
-// Height of the bottom on-screen control bar.
-static int control_bar_h(int h) { return h / 6; }
+// Height of the bottom on-screen control bar (a bit slimmer than a sixth).
+static int control_bar_h(int h) { return h / 7; }
 
 void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
     int w = GetScreenWidth(), h = GetScreenHeight();
     int bar_h = control_bar_h(h);
     int bar_y = h - bar_h;
-    int gap = w / 40;
-    int bw = (w - gap * (BTN_COUNT + 1)) / BTN_COUNT;
-    int bh = bar_h - gap * 2;
+
+    // A centered row of square buttons, smaller than the bar so they read as
+    // compact keys rather than filling the whole strip.
+    int bsize = (int)(bar_h * 0.72f);
+    int gap  = w / 26;
+    int side = w / 20;                    // keep the row off the screen edges
+    int max_total = w - 2 * side;
+    int total = BTN_COUNT * bsize + (BTN_COUNT - 1) * gap;
+    if (total > max_total) {
+        bsize = (max_total - (BTN_COUNT - 1) * gap) / BTN_COUNT;
+        total = BTN_COUNT * bsize + (BTN_COUNT - 1) * gap;
+    }
+    int startx = (w - total) / 2;
+    int by = bar_y + (bar_h - bsize) / 2;  // also leaves a gap below for the nav pill
     for (int i = 0; i < BTN_COUNT; i++) {
-        rects[i] = (Rectangle){ (float)(gap + i * (bw + gap)),
-                                (float)(bar_y + gap), (float)bw, (float)bh };
+        rects[i] = (Rectangle){ (float)(startx + i * (bsize + gap)),
+                                (float)by, (float)bsize, (float)bsize };
     }
 }
 
-// Draw the four control buttons with simple vector icons (DrawPoly triangles are
-// orientation-agnostic, so no vertex-winding concerns). A button lights up while
-// a finger rests on it.
+// Draw the four control buttons with subtle, low-contrast styling and clean
+// vector icons (DrawPoly triangles are orientation-agnostic — no winding
+// concerns). Buttons brighten slightly while a finger rests on them.
 static void draw_touch_buttons(void) {
     Rectangle r[BTN_COUNT];
     render_touch_button_rects(r);
@@ -220,24 +231,27 @@ static void draw_touch_buttons(void) {
         for (int t = 0; t < touches; t++) {
             if (CheckCollisionPointRec(GetTouchPosition(t), r[i])) { pressed = true; break; }
         }
-        DrawRectangleRounded(r[i], 0.25f, 8,
-                             pressed ? (Color){70, 70, 90, 255} : (Color){35, 35, 45, 255});
-        DrawRectangleRoundedLinesEx(r[i], 0.25f, 8, 2.0f, LIGHTGRAY);
+        Color fill = pressed ? (Color){44, 47, 58, 255} : (Color){24, 26, 32, 255};
+        Color edge = pressed ? (Color){90, 96, 112, 255} : (Color){48, 52, 62, 255};
+        Color icon = pressed ? (Color){215, 219, 228, 255} : (Color){150, 156, 170, 255};
+        DrawRectangleRounded(r[i], 0.30f, 10, fill);
+        DrawRectangleRoundedLinesEx(r[i], 0.30f, 10, 1.5f, edge);
 
         float cx = r[i].x + r[i].width / 2.0f;
         float cy = r[i].y + r[i].height / 2.0f;
-        float s = (r[i].height < r[i].width ? r[i].height : r[i].width) * 0.30f;
+        float s = r[i].height * 0.26f;
         Vector2 c = {cx, cy};
         switch (i) {
-        case BTN_LEFT:  DrawPoly(c, 3, s, 180, WHITE); break; // triangle points left
-        case BTN_RIGHT: DrawPoly(c, 3, s, 0,   WHITE); break; // points right
+        case BTN_LEFT:  DrawPoly(c, 3, s, 180, icon); break; // points left
+        case BTN_RIGHT: DrawPoly(c, 3, s, 0,   icon); break; // points right
         case BTN_ROTATE:
-            DrawRing(c, s * 0.55f, s * 0.85f, 40, 320, 32, WHITE); // C-shaped arrow
-            DrawPoly((Vector2){cx, cy - s * 0.7f}, 3, s * 0.34f, 0, WHITE); // arrowhead
+            DrawRing(c, s * 0.52f, s * 0.82f, 40, 320, 32, icon);           // C-shaped arrow
+            DrawPoly((Vector2){cx, cy - s * 0.67f}, 3, s * 0.32f, 0, icon); // arrowhead
             break;
         case BTN_DROP:
-            DrawPoly((Vector2){cx, cy - s * 0.2f}, 3, s, 90, WHITE); // points down
-            DrawRectangle((int)(cx - s), (int)(cy + s * 0.9f), (int)(s * 2), 3, WHITE); // floor
+            DrawPoly((Vector2){cx, cy - s * 0.25f}, 3, s, 90, icon);        // points down
+            DrawRectangle((int)(cx - s * 0.9f), (int)(cy + s * 0.85f),
+                          (int)(s * 1.8f), 3, icon);                        // floor line
             break;
         }
     }
