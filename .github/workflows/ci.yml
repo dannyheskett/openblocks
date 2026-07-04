@@ -71,8 +71,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       NDK_VERSION: "26.3.11579264"
-      ANDROID_BUILD_TOOLS: "34.0.0"
-      ANDROID_PLATFORM_VER: "34"
+      ANDROID_BUILD_TOOLS: "35.0.0"
+      ANDROID_PLATFORM_VER: "35"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
@@ -89,9 +89,17 @@ jobs:
           echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
       - name: Build raylib (Android, arm64-v8a static)
         run: ./scripts/build_raylib_android.sh
-      - name: Build APK
+      - name: Build APK (sideload)
         run: |
           make android \
+            ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
+            ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
+      # Validate the Play packaging pipeline (aapt2 + bundletool) on every PR,
+      # debug-signed. Proves the .aab builds without needing the real upload key;
+      # the release job swaps in the upload keystore when the secret is set.
+      - name: Build AAB (Play packaging check, debug-signed)
+        run: |
+          make android-play \
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
             ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
       - name: Upload APK artifact
