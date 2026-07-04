@@ -32,6 +32,9 @@ void render_menu(const char* title, const char* const* items, int count,
 
 bool render_window_should_close(void);
 void render_toggle_fullscreen(void);
+// True while the app window holds input focus. Used to auto-pause when the app
+// is sent to the background (Android suspend/resume).
+bool render_window_focused(void);
 
 // On-screen touch controls (Android). The bottom control bar holds a row of
 // four buttons; render.c draws them and input.c hit-tests them, both using the

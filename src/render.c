@@ -649,3 +649,7 @@ int render_menu_hit_test(Vector2 p) {
 bool render_window_should_close(void) {
     return WindowShouldClose();
 }
+
+bool render_window_focused(void) {
+    return IsWindowFocused();
+}

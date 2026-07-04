@@ -142,6 +142,15 @@ int main(int argc, char** argv) {
             break;
 
         case STATE_PLAYING:
+#ifdef PLATFORM_ANDROID
+            // Auto-pause when the app is sent to the background so the player
+            // returns to a paused game instead of mid-drop.
+            if (!render_window_focused()) {
+                state = STATE_PAUSED;
+                sound_play(SFX_PAUSE);
+                break;
+            }
+#endif
             if (in.escape_pressed) {
                 state = STATE_MENU; // game stays alive and resumable
                 selected = 0;
