@@ -48,4 +48,8 @@ typedef enum {
 // coordinates, which map 1:1 to touches since Android renders at native res).
 void render_touch_button_rects(Rectangle rects[BTN_COUNT]);
 
+// Return the menu item index at screen point `p`, or -1 if none. Uses the item
+// rectangles captured by the last render_menu() call (Android touch menus).
+int render_menu_hit_test(Vector2 p);
+
 #endif

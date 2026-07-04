@@ -22,9 +22,14 @@ typedef struct {
     // Menu / overlays
     bool menu_up;         // edge-triggered: move cursor up
     bool menu_down;       // edge-triggered: move cursor down
-    bool select_pressed;  // edge-triggered: Enter or Space
+    bool select_pressed;  // edge-triggered: Enter or Space (keyboard)
     bool escape_pressed;  // edge-triggered: Escape
     bool any_pressed;     // any key pressed this frame (used to dismiss overlays)
+
+    // Touch (Android): a tap on a menu item selects it directly. tap_x/tap_y are
+    // valid only when touch_tap is set.
+    bool touch_tap;
+    float tap_x, tap_y;
 
     // Window
     bool fullscreen_toggle; // Alt+Enter

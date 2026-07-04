@@ -44,7 +44,11 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     if (resumable) { labels[n] = "Resume Game"; actions[n++] = ACT_RESUME; }
     labels[n] = "New Game"; actions[n++] = ACT_NEW;
     labels[n] = sound_is_enabled() ? "Sound: On" : "Sound: Off"; actions[n++] = ACT_SOUND;
+#ifndef PLATFORM_ANDROID
+    // The mp4 recorder is a desktop-only feature (stubbed out on mobile), so the
+    // toggle would do nothing on Android — omit it there.
     labels[n] = recorder_active() ? "Record: On" : "Record: Off"; actions[n++] = ACT_RECORD;
+#endif
     labels[n] = "Exit"; actions[n++] = ACT_EXIT;
     return n;
 }
@@ -98,7 +102,14 @@ int main(int argc, char** argv) {
                 selected = (selected + 1) % menu_count;
                 sound_play(SFX_MENU_MOVE);
             }
-            if (in.select_pressed) {
+            // Touch: a tap directly on a menu item selects it (no highlight-then-
+            // confirm step). Keyboard select still activates the highlighted item.
+            bool do_select = in.select_pressed;
+            if (in.touch_tap) {
+                int hit = render_menu_hit_test((Vector2){in.tap_x, in.tap_y});
+                if (hit >= 0 && hit < menu_count) { selected = hit; do_select = true; }
+            }
+            if (do_select) {
                 switch (actions[selected]) {
                 case ACT_RESUME:
                     state = STATE_PLAYING;
