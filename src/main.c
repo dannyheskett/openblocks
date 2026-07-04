@@ -8,6 +8,10 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef PLATFORM_WEB
+#include <emscripten/emscripten.h>
+#endif
+
 typedef enum {
     STATE_MENU,
     STATE_PLAYING,
@@ -44,13 +48,140 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     if (resumable) { labels[n] = "Resume Game"; actions[n++] = ACT_RESUME; }
     labels[n] = "New Game"; actions[n++] = ACT_NEW;
     labels[n] = sound_is_enabled() ? "Sound: On" : "Sound: Off"; actions[n++] = ACT_SOUND;
-#ifndef PLATFORM_ANDROID
-    // The mp4 recorder is a desktop-only feature (stubbed out on mobile), so the
-    // toggle would do nothing on Android — omit it there.
+#ifndef OB_TOUCH
+    // The mp4 recorder is a desktop-only feature (stubbed out on mobile/web), so
+    // the toggle would do nothing there — omit it.
     labels[n] = recorder_active() ? "Record: On" : "Record: Off"; actions[n++] = ACT_RECORD;
 #endif
     labels[n] = "Exit"; actions[n++] = ACT_EXIT;
     return n;
+}
+
+// App state carried across frames. Kept in one struct so the web build can drive
+// the loop from an emscripten per-frame callback (browsers can't block).
+typedef struct {
+    Game* game;
+    AppState state;
+    int selected;
+    bool quit;
+} AppCtx;
+
+// One iteration of the game loop. `arg` is an AppCtx* (void* to match the
+// emscripten_set_main_loop callback signature).
+static void frame_step(void* arg) {
+    AppCtx* c = (AppCtx*)arg;
+
+    Input in = input_poll();
+    if (in.fullscreen_toggle) render_toggle_fullscreen();
+
+    bool resumable = (c->game != NULL && !game_is_over(c->game));
+    const char* labels[MAX_MENU_ITEMS];
+    MenuAction actions[MAX_MENU_ITEMS];
+    int menu_count = build_menu(resumable, labels, actions);
+    if (c->selected >= menu_count) c->selected = 0;
+
+    switch (c->state) {
+    case STATE_MENU:
+        if (in.escape_pressed) {
+            // Escape backs out: resume a game in progress, else quit (native).
+            if (resumable) { c->state = STATE_PLAYING; break; }
+            c->quit = true; return;
+        }
+        if (in.menu_up) {
+            c->selected = (c->selected + menu_count - 1) % menu_count;
+            sound_play(SFX_MENU_MOVE);
+        }
+        if (in.menu_down) {
+            c->selected = (c->selected + 1) % menu_count;
+            sound_play(SFX_MENU_MOVE);
+        }
+        // Touch: a tap directly on a menu item selects it. Keyboard select
+        // activates the highlighted item.
+        bool do_select = in.select_pressed;
+        if (in.touch_tap) {
+            int hit = render_menu_hit_test((Vector2){in.tap_x, in.tap_y});
+            if (hit >= 0 && hit < menu_count) { c->selected = hit; do_select = true; }
+        }
+        if (do_select) {
+            switch (actions[c->selected]) {
+            case ACT_RESUME:
+                c->state = STATE_PLAYING;
+                sound_play(SFX_MENU_SELECT);
+                break;
+            case ACT_NEW:
+                if (c->game) game_destroy(c->game);
+                c->game = game_create();
+                if (recorder_active()) { recorder_stop(); recorder_start(NULL); }
+                c->state = STATE_PLAYING;
+                sound_play(SFX_MENU_SELECT);
+                break;
+            case ACT_SOUND:
+                sound_toggle();
+                sound_play(SFX_MENU_SELECT); // audible only once enabled
+                break;
+            case ACT_RECORD:
+                recorder_toggle();
+                sound_play(SFX_MENU_SELECT);
+                break;
+            case ACT_EXIT:
+                c->quit = true; return;
+            }
+        }
+        break;
+
+    case STATE_PLAYING:
+#ifdef OB_TOUCH
+        // Auto-pause when the app is backgrounded (Android) or the browser tab
+        // loses focus (web), so the player returns paused, not mid-drop.
+        if (!render_window_focused()) {
+            c->state = STATE_PAUSED;
+            sound_play(SFX_PAUSE);
+            break;
+        }
+#endif
+        if (in.escape_pressed) {
+            c->state = STATE_MENU; // game stays alive and resumable
+            c->selected = 0;
+        } else if (in.pause_pressed) {
+            c->state = STATE_PAUSED;
+            sound_play(SFX_PAUSE);
+        } else {
+            game_handle_held(c->game, in.left, in.right, in.down);
+            if (in.rotate_pressed) game_input(c->game, INPUT_ROTATE);
+            if (in.hard_drop_pressed) game_input(c->game, INPUT_HARD_DROP);
+            game_update(c->game);
+            play_event_sounds(c->game->events);
+            if (game_is_over(c->game)) c->state = STATE_GAMEOVER;
+        }
+        break;
+
+    case STATE_PAUSED:
+        if (in.escape_pressed) {
+            c->state = STATE_MENU; // game stays alive and resumable
+            c->selected = 0;
+        } else if (in.any_pressed && !in.fullscreen_toggle) {
+            c->state = STATE_PLAYING;
+        }
+        break;
+
+    case STATE_GAMEOVER:
+        if (in.escape_pressed || (in.any_pressed && !in.fullscreen_toggle)) {
+            c->state = STATE_MENU;
+            c->selected = 0;
+        }
+        break;
+    }
+
+    // Render for the current state.
+    if (c->state == STATE_MENU) {
+        render_menu("OPENBLOCKS", labels, menu_count, c->selected, menu_count - 1);
+    } else if (c->state == STATE_PAUSED) {
+        render_pause(c->game);
+    } else if (c->state == STATE_GAMEOVER) {
+        render_game_over(c->game);
+    } else {
+        render_frame(c->game);
+    }
 }
 
 int main(int argc, char** argv) {
@@ -71,135 +202,27 @@ int main(int argc, char** argv) {
 
     if (cli_record) recorder_start(cli_record_path);
 
-    Game* game = NULL;
-    AppState state = STATE_MENU;
-    int selected = 0;
+    // Static so the pointer handed to emscripten stays valid after main()'s stack
+    // is unwound on the web build (see the PLATFORM_WEB branch below).
+    static AppCtx ctx;
+    ctx.game = NULL;
+    ctx.state = STATE_MENU;
+    ctx.selected = 0;
+    ctx.quit = false;
 
-    while (!render_window_should_close()) {
-        Input in = input_poll();
-
-        if (in.fullscreen_toggle) render_toggle_fullscreen();
-
-        bool resumable = (game != NULL && !game_is_over(game));
-        const char* labels[MAX_MENU_ITEMS];
-        MenuAction actions[MAX_MENU_ITEMS];
-        int menu_count = build_menu(resumable, labels, actions);
-        if (selected >= menu_count) selected = 0;
-
-        switch (state) {
-        case STATE_MENU:
-            if (in.escape_pressed) {
-                // Escape backs out: resume the game if one is in progress,
-                // otherwise (top-level menu) exit.
-                if (resumable) { state = STATE_PLAYING; break; }
-                goto quit;
-            }
-            if (in.menu_up) {
-                selected = (selected + menu_count - 1) % menu_count;
-                sound_play(SFX_MENU_MOVE);
-            }
-            if (in.menu_down) {
-                selected = (selected + 1) % menu_count;
-                sound_play(SFX_MENU_MOVE);
-            }
-            // Touch: a tap directly on a menu item selects it (no highlight-then-
-            // confirm step). Keyboard select still activates the highlighted item.
-            bool do_select = in.select_pressed;
-            if (in.touch_tap) {
-                int hit = render_menu_hit_test((Vector2){in.tap_x, in.tap_y});
-                if (hit >= 0 && hit < menu_count) { selected = hit; do_select = true; }
-            }
-            if (do_select) {
-                switch (actions[selected]) {
-                case ACT_RESUME:
-                    state = STATE_PLAYING;
-                    sound_play(SFX_MENU_SELECT);
-                    break;
-                case ACT_NEW:
-                    if (game) game_destroy(game);
-                    game = game_create();
-                    // Each game records to its own file: finalize the current
-                    // recording (if any) and begin a fresh one.
-                    if (recorder_active()) {
-                        recorder_stop();
-                        recorder_start(NULL);
-                    }
-                    state = STATE_PLAYING;
-                    sound_play(SFX_MENU_SELECT);
-                    break;
-                case ACT_SOUND:
-                    sound_toggle();
-                    sound_play(SFX_MENU_SELECT); // audible only once enabled
-                    break;
-                case ACT_RECORD:
-                    recorder_toggle(); // start (auto-named file) or finalize
-                    sound_play(SFX_MENU_SELECT);
-                    break;
-                case ACT_EXIT:
-                    goto quit;
-                }
-            }
-            break;
-
-        case STATE_PLAYING:
-#ifdef PLATFORM_ANDROID
-            // Auto-pause when the app is sent to the background so the player
-            // returns to a paused game instead of mid-drop.
-            if (!render_window_focused()) {
-                state = STATE_PAUSED;
-                sound_play(SFX_PAUSE);
-                break;
-            }
-#endif
-            if (in.escape_pressed) {
-                state = STATE_MENU; // game stays alive and resumable
-                selected = 0;
-            } else if (in.pause_pressed) {
-                state = STATE_PAUSED;
-                sound_play(SFX_PAUSE);
-            } else {
-                game_handle_held(game, in.left, in.right, in.down);
-                if (in.rotate_pressed) game_input(game, INPUT_ROTATE);
-                if (in.hard_drop_pressed) game_input(game, INPUT_HARD_DROP);
-                game_update(game);
-                play_event_sounds(game->events);
-                if (game_is_over(game)) state = STATE_GAMEOVER;
-            }
-            break;
-
-        case STATE_PAUSED:
-            if (in.escape_pressed) {
-                state = STATE_MENU; // game stays alive and resumable
-                selected = 0;
-            } else if (in.any_pressed && !in.fullscreen_toggle) {
-                state = STATE_PLAYING;
-            }
-            break;
-
-        case STATE_GAMEOVER:
-            if (in.escape_pressed || (in.any_pressed && !in.fullscreen_toggle)) {
-                state = STATE_MENU;
-                selected = 0;
-            }
-            break;
-        }
-
-        // Render for the current state.
-        if (state == STATE_MENU) {
-            render_menu("OPENBLOCKS", labels, menu_count, selected, menu_count - 1);
-        } else if (state == STATE_PAUSED) {
-            render_pause(game);
-        } else if (state == STATE_GAMEOVER) {
-            render_game_over(game);
-        } else {
-            render_frame(game);
-        }
+#ifdef PLATFORM_WEB
+    // Browsers drive the loop via a per-frame callback; with the infinite-loop
+    // flag this call does not return, so the native cleanup below never runs on
+    // web (the browser tab owns the lifetime).
+    emscripten_set_main_loop_arg(frame_step, &ctx, 0, 1);
+#else
+    while (!render_window_should_close() && !ctx.quit) {
+        frame_step(&ctx);
     }
-
-quit:
     recorder_stop(); // finalize the .mp4 if recording
-    if (game) game_destroy(game);
+    if (ctx.game) game_destroy(ctx.game);
     sound_shutdown();
     render_cleanup();
+#endif
     return 0;
 }

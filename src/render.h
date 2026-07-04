@@ -2,13 +2,14 @@
 #define OPENBLOCKS_RENDER_H
 
 #include "game.h"
+#include "platform.h"
 #include <raylib.h>
 #include <stdbool.h>
 
 // The game renders to a fixed off-screen canvas that present() integer-scales
 // and letterboxes into the real window/screen. Desktop uses a 640x480 landscape
 // canvas; Android uses a portrait canvas sized for a phone screen.
-#ifdef PLATFORM_ANDROID
+#ifdef OB_TOUCH
 #define BASE_WIDTH  480
 #define BASE_HEIGHT 854
 #else

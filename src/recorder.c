@@ -4,12 +4,14 @@
 #define _FILE_OFFSET_BITS 64
 
 #include "recorder.h"
+#include "platform.h"
 
 // The frame-fidelity mp4 recorder depends on the vendored minih264/minimp4
 // single-header libraries and writes its output to the working directory.
-// Neither is available (nor meaningful) on Android, so the entire implementation
-// is compiled out there and replaced with no-op stubs at the bottom of the file.
-#ifndef PLATFORM_ANDROID
+// Neither is available (nor meaningful) on the mobile/web builds, so the entire
+// implementation is compiled out there and replaced with no-op stubs at the
+// bottom of the file.
+#ifndef OB_TOUCH
 
 #include "minih264e.h"  // declarations only (implementation is in encode_h264.c)
 #include "minimp4.h"    // declarations only (implementation is in encode_mux.c)

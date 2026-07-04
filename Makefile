@@ -201,6 +201,30 @@ $(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_KEYSTORE) android/AndroidManifest.xml \
 	@echo "[android] built $@"
 
 # ---------------------------------------------------------------------------
+# Web build (WebAssembly via Emscripten). CI-only: needs emcc (emsdk) on PATH.
+# Reuses the mobile touch UI (OB_TOUCH) plus keyboard, and drives the loop from
+# emscripten_set_main_loop. The recorder is stubbed, so the encode_h264/mux TUs
+# and minih264/minimp4 includes are dropped (as on Android). Outputs
+# build/web/openblocks.{html,js,wasm} with the mobile shell in web/shell.html.
+# ---------------------------------------------------------------------------
+RAYLIB_WEB := third_party/raylib-install-web
+
+WEB_SRC     := $(filter-out src/encode_h264.c src/encode_mux.c,$(SRC))
+WEB_CFLAGS  := -std=c99 -Wall -Wextra -Isrc -DPLATFORM_WEB -Os \
+               -I$(RAYLIB_WEB)/include
+WEB_LDFLAGS := -Os -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 \
+               --shell-file web/shell.html $(RAYLIB_WEB)/lib/libraylib.a
+
+WEB_OUT_DIR := build/web
+WEB_OUT     := $(WEB_OUT_DIR)/openblocks.html
+
+web: $(WEB_OUT)
+
+$(WEB_OUT): $(WEB_SRC) web/shell.html | $(WEB_OUT_DIR)
+	emcc $(WEB_CFLAGS) $(WEB_SRC) -o $@ $(WEB_LDFLAGS)
+	@echo "[web] built $@"
+
+# ---------------------------------------------------------------------------
 # Unit tests (game logic only — no raylib/window needed). The test TU includes
 # game.c directly to reach its file-static helpers.
 # ---------------------------------------------------------------------------
@@ -248,7 +272,7 @@ dist-mac: $(OUT_MAC)
 	(cd $(STAGING)/mac && zip -qr ../../../$(DIST)/openblocks-$(VERSION_SLUG)-macos-universal.zip openblocks-$(VERSION_SLUG))
 
 # ---------------------------------------------------------------------------
-$(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR) $(MAC_OBJ_DIR) $(ANDROID_OBJ_DIR):
+$(OBJ_DIR) $(REL_OBJ_DIR) $(WIN64_OBJ_DIR) $(WIN32_OBJ_DIR) $(MAC_OBJ_DIR) $(ANDROID_OBJ_DIR) $(WEB_OUT_DIR):
 	mkdir -p $@
 
 clean:

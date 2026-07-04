@@ -6,6 +6,7 @@ name: ci
 #   - windows: mingw-w64 cross-compile, x64 + x86
 #   - mac:     clang universal binary, arm64 + x86_64
 #   - android: NDK cross-compile, NativeActivity APK (arm64-v8a), uploaded
+#   - web:     Emscripten WASM build (mobile touch UI + keyboard), uploaded
 # Doc-only changes skip CI. Pushes to main do nothing; merges go through PRs.
 
 on:
@@ -98,3 +99,20 @@ jobs:
         with:
           name: openblocks-apk
           path: build/openblocks.apk
+
+  web:
+    name: web (WASM via Emscripten)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+      - name: Build raylib (web)
+        run: ./scripts/build_raylib_web.sh
+      - name: Build WASM
+        run: make web
+      - name: Upload web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: openblocks-web
+          path: build/web

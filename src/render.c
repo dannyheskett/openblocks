@@ -5,7 +5,7 @@
 #define CELL_SIZE 20
 #define BORDER_WIDTH 2
 
-#ifndef PLATFORM_ANDROID
+#ifndef OB_TOUCH
 // Desktop renders to a fixed off-screen canvas that present() integer-scales and
 // letterboxes into the window. Android renders straight to the screen instead.
 static int current_scale = 1;
@@ -102,24 +102,28 @@ static void draw_piece_centered(int piece_type, int rotation, int box_x, int box
 }
 
 void render_init(void) {
-#ifdef PLATFORM_ANDROID
+#if defined(PLATFORM_ANDROID)
     // Request immersive fullscreen so the app draws under the status bar / camera
     // cutout (paired with windowLayoutInDisplayCutoutMode=shortEdges in the theme)
     // — otherwise the surface is letterboxed below the status bar.
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
+#elif defined(PLATFORM_WEB)
+    // Let the GL canvas follow the browser viewport (the HTML shell sizes it);
+    // GetScreenWidth/Height then track it so the layout re-fits on resize/rotate.
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
 #endif
     // Fixed 640x480 window (not resizable); Alt+Enter toggles fullscreen.
     InitWindow(BASE_WIDTH, BASE_HEIGHT, "openblocks");
     SetExitKey(KEY_NULL); // Escape is handled by the game, not the window
     SetTargetFPS(60);
 
-#ifndef PLATFORM_ANDROID
+#ifndef OB_TOUCH
     canvas = LoadRenderTexture(BASE_WIDTH, BASE_HEIGHT);
 #endif
 }
 
 void render_toggle_fullscreen(void) {
-#ifdef PLATFORM_ANDROID
+#ifdef OB_TOUCH
     // Android apps are always fullscreen; nothing to toggle.
     (void)0;
 }
@@ -138,13 +142,13 @@ void render_toggle_fullscreen(void) {
 #endif // PLATFORM_ANDROID
 
 void render_cleanup(void) {
-#ifndef PLATFORM_ANDROID
+#ifndef OB_TOUCH
     UnloadRenderTexture(canvas);
 #endif
     CloseWindow();
 }
 
-#ifndef PLATFORM_ANDROID
+#ifndef OB_TOUCH
 static int calculate_scale(void) {
     int window_w = GetScreenWidth();
     int window_h = GetScreenHeight();
@@ -188,7 +192,7 @@ static void present(void) {
 }
 #endif // PLATFORM_ANDROID: calculate_scale/present are desktop-only
 
-#ifdef PLATFORM_ANDROID
+#ifdef OB_TOUCH
 
 // Android renders directly at the device's real resolution (no fixed canvas,
 // no letterbox): the title bar is pinned to the top, a proportional HUD sits
@@ -465,7 +469,7 @@ static void draw_game(const Game* game) {
 // a dimmed background. Shared by the pause and game-over overlays. Sizes are
 // proportional to the real screen on Android, fixed to the canvas on desktop.
 static void draw_center_panel(const char* title, const char* subtitle, Color title_color) {
-#ifdef PLATFORM_ANDROID
+#ifdef OB_TOUCH
     int w = GetScreenWidth(), h = GetScreenHeight();
     int panel_w = w * 72 / 100, panel_h = h * 16 / 100;
     int ts = panel_h * 28 / 100, ss = panel_h * 13 / 100;
@@ -495,7 +499,7 @@ static void draw_center_panel(const char* title, const char* subtitle, Color tit
 static Rectangle s_menu_item_rects[8];
 static int s_menu_item_count = 0;
 
-#ifdef PLATFORM_ANDROID
+#ifdef OB_TOUCH
 
 // Android draws straight to the screen (draw_game clears and lays out at the
 // real device resolution); no offscreen canvas or letterbox.
