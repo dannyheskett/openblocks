@@ -162,8 +162,14 @@ ANDROID_CFLAGS  := -std=c99 -Wall -Wextra -Isrc -DPLATFORM_ANDROID -fPIC \
 # through the Android asset manager; libraylib.a references __real_fopen, which
 # only exists when this flag is present. Without it, dlopen of libopenblocks.so
 # fails at launch with "cannot locate symbol __real_fopen".
+#
+# -z max-page-size=16384 gives the .so 16 KB-aligned LOAD segments. Google Play
+# requires 16 KB page-size support for apps targeting Android 15+ (devices with
+# 16 KB memory pages); NDK r26's linker still defaults to 4 KB, so we set it
+# explicitly. Verified after linking (check_elf_align.sh).
 ANDROID_LDFLAGS := -shared -L$(RAYLIB_ANDROID)/lib -lraylib \
                    -Wl,--wrap=fopen \
+                   -Wl,-z,max-page-size=16384,-z,common-page-size=16384 \
                    -llog -landroid -lEGL -lGLESv2 -lOpenSLES -lm -lc -ldl
 
 ANDROID_OBJ_DIR := build/obj-android
@@ -186,6 +192,7 @@ $(ANDROID_OBJ_DIR)/%.o: src/%.c | $(ANDROID_OBJ_DIR)
 $(ANDROID_LIB): $(ANDROID_OBJ)
 	@mkdir -p $(dir $@)
 	$(ANDROID_CC) $(ANDROID_OBJ) -o $@ $(ANDROID_LDFLAGS)
+	@scripts/check_elf_align.sh $(ANDROID_TOOLCHAIN)/bin/llvm-readelf $@
 
 # Throwaway debug keystore for signing. Real distributable builds sign with a
 # keystore supplied from a CI secret instead.
