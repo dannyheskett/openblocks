@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Minimal NativeActivity manifest: the whole game is native C, so there is no
+  application Java/Kotlin code. Android loads libopenblocks.so directly via
+  android.app.NativeActivity (the "android.app.lib_name" meta-data names the .so
+  without its "lib" prefix or ".so" suffix). Portrait-locked to match the
+  reflowed phone layout; fullscreen with no title bar.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.openblocks.game"
+          android:versionCode="1"
+          android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <application android:label="openblocks"
+                 android:hasCode="false"
+                 android:allowBackup="false">
+
+        <activity android:name="android.app.NativeActivity"
+                  android:label="openblocks"
+                  android:screenOrientation="portrait"
+                  android:configChanges="orientation|keyboardHidden|screenSize"
+                  android:exported="true"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+
+            <!-- Names the native library (libopenblocks.so) NativeActivity loads. -->
+            <meta-data android:name="android.app.lib_name" android:value="openblocks" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

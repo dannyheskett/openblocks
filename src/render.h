@@ -4,8 +4,16 @@
 #include "game.h"
 #include <stdbool.h>
 
-#define BASE_WIDTH 640
+// The game renders to a fixed off-screen canvas that present() integer-scales
+// and letterboxes into the real window/screen. Desktop uses a 640x480 landscape
+// canvas; Android uses a portrait canvas sized for a phone screen.
+#ifdef PLATFORM_ANDROID
+#define BASE_WIDTH  480
+#define BASE_HEIGHT 854
+#else
+#define BASE_WIDTH  640
 #define BASE_HEIGHT 480
+#endif
 
 void render_init(void);
 void render_cleanup(void);
