@@ -16,6 +16,23 @@
 <body>
   <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
   <script>
+    // Preserve the WebGL drawing buffer so the game canvas can be captured
+    // (screenshots, screen recording, and headless/automated capture). Without
+    // this, the browser is free to discard the back buffer after compositing,
+    // so a readback taken outside the render loop comes back blank/white. The
+    // cost is negligible for a game this small. Must run before the WASM module
+    // creates its GL context, so we patch getContext up front.
+    (function () {
+      var orig = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+        if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+          attrs = attrs || {};
+          if (attrs.preserveDrawingBuffer === undefined) attrs.preserveDrawingBuffer = true;
+        }
+        return orig.call(this, type, attrs);
+      };
+    })();
+
     // Safari workaround (entirely in Safari's own APIs — raylib is untouched):
     // raylib's web backend sizes the canvas from window.innerWidth/innerHeight.
     // On mobile Safari innerHeight is the *large* layout viewport (the area
