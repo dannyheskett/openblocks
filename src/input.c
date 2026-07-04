@@ -60,8 +60,10 @@ Input input_poll(void) {
         bool on_drop = CheckCollisionPointRec(last_pos, b[BTN_DROP]);
         if (on_drop)     input.hard_drop_pressed = true;
         else if (!on_lr) input.rotate_pressed = true;
-        input.select_pressed = true;
-        input.any_pressed    = true;
+        input.any_pressed = true;              // dismiss pause/game-over overlays
+        input.touch_tap   = true;              // menu: select the tapped item
+        input.tap_x = last_pos.x;
+        input.tap_y = last_pos.y;
     }
     if (g == GESTURE_SWIPE_UP)   input.menu_up   = true;
     if (g == GESTURE_SWIPE_DOWN) input.menu_down = true;

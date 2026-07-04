@@ -484,6 +484,11 @@ static void draw_center_panel(const char* title, const char* subtitle, Color tit
     }
 }
 
+// Menu item rectangles captured by the last render_menu(), for touch hit-testing
+// (Android). Populated by the Android render_menu; stays empty on desktop.
+static Rectangle s_menu_item_rects[8];
+static int s_menu_item_count = 0;
+
 #ifdef PLATFORM_ANDROID
 
 // Android draws straight to the screen (draw_game clears and lays out at the
@@ -515,12 +520,17 @@ void render_menu(const char* title, const char* const* items, int count,
     ClearBackground(BLACK);
 
     int cx = w / 2;
-    int title_size = h / 16;
     int line_h = h / 20;
     int item_fs = h / 28;
     int extra = (gap_before >= 0) ? 1 : 0;
-
     int panel_w = w * 72 / 100;
+
+    // Shrink the title if it would overrun the panel (wide tablets).
+    int title_size = h / 16;
+    while (title_size > 12 && MeasureText(title, title_size) > panel_w - line_h) {
+        title_size -= 2;
+    }
+
     int content_h = title_size + line_h + (count + extra) * line_h;
     int panel_h = content_h + line_h * 2;
     int px = cx - panel_w / 2;
@@ -531,6 +541,8 @@ void render_menu(const char* title, const char* const* items, int count,
 
     DrawText(title, cx - MeasureText(title, title_size) / 2, py + line_h, title_size, WHITE);
 
+    // Capture each item's clickable row rectangle for touch hit-testing.
+    s_menu_item_count = (count < 8) ? count : 8;
     int y = py + line_h + title_size + line_h;
     for (int i = 0; i < count; i++) {
         if (gap_before == i) y += line_h;
@@ -542,6 +554,10 @@ void render_menu(const char* title, const char* const* items, int count,
             DrawText("<", cx + lw / 2 + item_fs / 2, y, item_fs, YELLOW);
         }
         DrawText(label, cx - lw / 2, y, item_fs, col);
+        if (i < 8) {
+            s_menu_item_rects[i] = (Rectangle){ (float)px, (float)(y - (line_h - item_fs) / 2),
+                                                (float)panel_w, (float)line_h };
+        }
         y += line_h;
     }
 
@@ -616,6 +632,13 @@ void render_menu(const char* title, const char* const* items, int count,
 }
 
 #endif // PLATFORM_ANDROID
+
+int render_menu_hit_test(Vector2 p) {
+    for (int i = 0; i < s_menu_item_count; i++) {
+        if (CheckCollisionPointRec(p, s_menu_item_rects[i])) return i;
+    }
+    return -1;
+}
 
 bool render_window_should_close(void) {
     return WindowShouldClose();
