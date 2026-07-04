@@ -41,6 +41,15 @@ static float s_cr = 0, s_cg = 0, s_cb = 0, s_ca = 1; // clear colour
 static int   s_fw = 1, s_fh = 1;                      // full drawable (px)
 static int   s_ox = 0, s_oy = 0;                      // safe-area origin (px)
 
+// Triple-buffered vertex buffers, reused across frames (grown on demand) instead
+// of allocating one per frame; the semaphore stops us overwriting a buffer the
+// GPU is still reading.
+#define OB_INFLIGHT 3
+static id<MTLBuffer>        s_vbuf[OB_INFLIGHT];
+static NSUInteger           s_vcap[OB_INFLIGHT];
+static int                  s_frame_idx = 0;
+static dispatch_semaphore_t s_inflight;
+
 static const char* kShader = R"(
 #include <metal_stdlib>
 using namespace metal;
@@ -109,6 +118,7 @@ static void build_font_atlas(void) {
 void gfx_metal_attach(CAMetalLayer* layer) {
     s_device = MTLCreateSystemDefaultDevice();
     s_queue  = [s_device newCommandQueue];
+    s_inflight = dispatch_semaphore_create(OB_INFLIGHT);
     layer.device          = s_device;
     layer.pixelFormat     = MTLPixelFormatBGRA8Unorm;
     layer.framebufferOnly = YES;
@@ -179,7 +189,14 @@ void gfx_clear(Color c) {
 void gfx_end_frame(void) {
     id<CAMetalDrawable> drawable = [s_layer nextDrawable];
     if (!drawable) return;
+
+    dispatch_semaphore_wait(s_inflight, DISPATCH_TIME_FOREVER);
+    int fi = s_frame_idx;
+    s_frame_idx = (s_frame_idx + 1) % OB_INFLIGHT;
+
     id<MTLCommandBuffer> cmd = [s_queue commandBuffer];
+    __block dispatch_semaphore_t sem = s_inflight;
+    [cmd addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull b) { (void)b; dispatch_semaphore_signal(sem); }];
 
     MTLRenderPassDescriptor* rp = [MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture     = drawable.texture;
@@ -189,12 +206,15 @@ void gfx_end_frame(void) {
     id<MTLRenderCommandEncoder> enc = [cmd renderCommandEncoderWithDescriptor:rp];
 
     if (!s_verts.empty() && s_pipeline) {
-        id<MTLBuffer> vb = [s_device newBufferWithBytes:s_verts.data()
-                                                 length:s_verts.size() * sizeof(GVert)
-                                                options:MTLResourceStorageModeShared];
+        NSUInteger need = s_verts.size() * sizeof(GVert);
+        if (s_vcap[fi] < need) {
+            s_vbuf[fi] = [s_device newBufferWithLength:need options:MTLResourceStorageModeShared];
+            s_vcap[fi] = need;
+        }
+        memcpy(s_vbuf[fi].contents, s_verts.data(), need);
         float uni[4] = { (float)s_fw, (float)s_fh, (float)s_ox, (float)s_oy };
         [enc setRenderPipelineState:s_pipeline];
-        [enc setVertexBuffer:vb offset:0 atIndex:0];
+        [enc setVertexBuffer:s_vbuf[fi] offset:0 atIndex:0];
         [enc setVertexBytes:uni length:sizeof(uni) atIndex:1];
         [enc setFragmentTexture:s_atlas atIndex:0];
         [enc setFragmentSamplerState:s_sampler atIndex:0];
