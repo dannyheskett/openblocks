@@ -1,0 +1,63 @@
+#ifndef OPENBLOCKS_OB_TYPES_H
+#define OPENBLOCKS_OB_TYPES_H
+
+// Geometry / colour types and the handful of raylib query functions the shared
+// game code uses, decoupled from raylib so the iOS build (which links no raylib)
+// still compiles. On every raylib platform this is just <raylib.h>, so those
+// builds are completely unchanged. On iOS we provide layout-identical structs,
+// raylib's named colours, and declarations for the queries that plat_ios
+// implements (screen size, touch, gestures, time, focus).
+
+#if !defined(PLATFORM_IOS)
+
+#include <raylib.h>
+
+#else // PLATFORM_IOS: no raylib — provide the compatible surface ourselves.
+
+#include <stdbool.h>
+
+typedef struct { float x, y; }                Vector2;
+typedef struct { float x, y, width, height; } Rectangle;
+typedef struct { unsigned char r, g, b, a; }  Color; // identical layout to raylib
+
+// raylib's named colours, exact RGBA, so render.c's colour literals resolve.
+#define BLACK     ((Color){   0,   0,   0, 255 })
+#define WHITE     ((Color){ 255, 255, 255, 255 })
+#define LIGHTGRAY ((Color){ 200, 200, 200, 255 })
+#define GRAY      ((Color){ 130, 130, 130, 255 })
+#define DARKGRAY  ((Color){  80,  80,  80, 255 })
+#define YELLOW    ((Color){ 253, 249,   0, 255 })
+#define RED       ((Color){ 230,  41,  55, 255 })
+
+// Pure-geometry helper raylib normally provides.
+static inline bool CheckCollisionPointRec(Vector2 p, Rectangle r) {
+    return p.x >= r.x && p.x < r.x + r.width &&
+           p.y >= r.y && p.y < r.y + r.height;
+}
+
+// printf-style transient formatter, matching raylib's TextFormat semantics
+// (returns a pointer into an internal rotating buffer). Implemented in plat_ios.
+const char* TextFormat(const char* text, ...);
+
+// Gesture ids (values match raylib's enum so input.c comparisons are unchanged).
+enum {
+    GESTURE_TAP        = 1,
+    GESTURE_DOUBLETAP  = 2,
+    GESTURE_SWIPE_UP   = 16,
+    GESTURE_SWIPE_DOWN = 32,
+};
+
+// Queries implemented by plat_ios (UIKit-backed), same names/semantics raylib
+// exposes, so render.c / input.c call sites need no changes.
+int     GetScreenWidth(void);
+int     GetScreenHeight(void);
+int     GetTouchPointCount(void);
+Vector2 GetTouchPosition(int index);
+int     GetGestureDetected(void);
+double  GetTime(void);
+bool    IsWindowFocused(void);
+bool    WindowShouldClose(void);
+
+#endif // PLATFORM_IOS
+
+#endif // OPENBLOCKS_OB_TYPES_H

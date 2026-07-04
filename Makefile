@@ -14,7 +14,7 @@ RAYLIB_WIN32 := third_party/raylib-install-win32
 MINIH264_INC := third_party/minih264
 MINIMP4_INC  := third_party/minimp4
 
-SRC := src/main.c src/game.c src/input.c src/render.c src/sound.c \
+SRC := src/main.c src/game.c src/input.c src/render.c src/gfx_raylib.c src/sound.c \
        src/recorder.c src/encode_h264.c src/encode_mux.c
 
 # Shared standard/warning flags and vendored-header include paths.
