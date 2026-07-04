@@ -19,3 +19,7 @@ third_party/raylib/
 *.keystore
 *.p12
 *.b64
+
+# Python bytecode cache (from asset generators)
+__pycache__/
+*.pyc
