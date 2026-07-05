@@ -7,7 +7,6 @@
 // coverage), so there is one shader and one draw call per frame.
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
-#import <UIKit/UIKit.h>
 
 #include <vector>
 #include <string.h>
@@ -15,19 +14,10 @@
 
 #import "gfx.h"
 #import "gfx_metal.h"
+#include "font_atlas.h"  // raylib's default pixel font (generated), for parity
 
-// --- Vertex + atlas layout --------------------------------------------------
+// --- Vertex layout ----------------------------------------------------------
 struct GVert { float x, y, u, v, r, g, b, a; }; // 32 bytes; matches packed MSL
-
-#define ATLAS_COLS 16
-#define ATLAS_ROWS 6
-#define ATLAS_CW   29          // glyph cell width  (px)
-#define ATLAS_CH   64          // glyph cell height (px) — the text "em"
-#define ATLAS_W    (ATLAS_COLS * ATLAS_CW)
-#define ATLAS_H    (ATLAS_ROWS * ATLAS_CH)
-#define GLYPH_FIRST 0x20
-#define GLYPH_LAST  0x7E
-#define WHITE_CELL  95         // last cell (col15,row5): a solid white texel
 
 static id<MTLDevice>          s_device;
 static id<MTLCommandQueue>    s_queue;
@@ -35,6 +25,7 @@ static CAMetalLayer*          s_layer;
 static id<MTLRenderPipelineState> s_pipeline;
 static id<MTLSamplerState>    s_sampler;
 static id<MTLTexture>         s_atlas;
+static int                    s_glyph_index[256]; // codepoint -> ob_font_glyphs index
 
 static std::vector<GVert> s_verts;
 static float s_cr = 0, s_cg = 0, s_cb = 0, s_ca = 1; // clear colour
@@ -68,51 +59,43 @@ vertex VOut v_main(uint vid [[vertex_id]],
 fragment float4 f_main(VOut in [[stage_in]],
                        texture2d<float> atlas [[texture(0)]],
                        sampler samp [[sampler(0)]]) {
-    float a = atlas.sample(samp, in.uv).a;
+    float a = atlas.sample(samp, in.uv).r; // single-channel (R8) coverage
     return float4(in.color.rgb, in.color.a * a);
 }
 )";
 
 // --- Setup ------------------------------------------------------------------
 static void build_font_atlas(void) {
-    UIGraphicsBeginImageContextWithOptions(CGSizeMake(ATLAS_W, ATLAS_H), NO, 1.0);
-    UIFont* font = [UIFont monospacedSystemFontOfSize:46 weight:UIFontWeightBold];
-    NSDictionary* attrs = @{ NSFontAttributeName: font,
-                             NSForegroundColorAttributeName: [UIColor whiteColor] };
-    for (int i = 0; i <= (GLYPH_LAST - GLYPH_FIRST); i++) {
-        unichar ch = (unichar)(GLYPH_FIRST + i);
-        NSString* s = [NSString stringWithCharacters:&ch length:1];
-        CGSize sz = [s sizeWithAttributes:attrs];
-        int col = i % ATLAS_COLS, row = i / ATLAS_COLS;
-        CGFloat x = col * ATLAS_CW + (ATLAS_CW - sz.width) / 2.0;
-        CGFloat y = row * ATLAS_CH + (ATLAS_CH - sz.height) / 2.0;
-        [s drawAtPoint:CGPointMake(x, y) withAttributes:attrs];
-    }
-    // Solid white texel cell for filled primitives.
-    CGContextRef cg = UIGraphicsGetCurrentContext();
-    CGContextSetRGBFillColor(cg, 1, 1, 1, 1);
-    int wc = WHITE_CELL % ATLAS_COLS, wr = WHITE_CELL / ATLAS_COLS;
-    CGContextFillRect(cg, CGRectMake(wc * ATLAS_CW, wr * ATLAS_CH, ATLAS_CW, ATLAS_CH));
-    UIImage* img = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
+    // Upload raylib's default-font alpha atlas as a single-channel texture, with
+    // the bottom-right pixel forced opaque to serve as the "white texel" that
+    // solid primitives sample. Nearest sampling keeps the pixel font crisp (like
+    // raylib) and makes that texel read exactly 1.0.
+    static unsigned char atlas[OB_FONT_ATLAS_W * OB_FONT_ATLAS_H];
+    memcpy(atlas, ob_font_atlas_alpha, sizeof(atlas));
+    atlas[OB_FONT_ATLAS_W * OB_FONT_ATLAS_H - 1] = 255;
 
-    // Rasterize the UIImage to RGBA bytes and upload.
-    CGImageRef cgi = img.CGImage;
-    int W = (int)CGImageGetWidth(cgi), H = (int)CGImageGetHeight(cgi);
-    uint8_t* data = (uint8_t*)calloc((size_t)W * H * 4, 1);
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef bctx = CGBitmapContextCreate(data, W, H, 8, W * 4, cs,
-                                              kCGImageAlphaPremultipliedLast);
-    CGContextDrawImage(bctx, CGRectMake(0, 0, W, H), cgi);
     MTLTextureDescriptor* td =
-        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                           width:W height:H mipmapped:NO];
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+                                                           width:OB_FONT_ATLAS_W
+                                                          height:OB_FONT_ATLAS_H mipmapped:NO];
     s_atlas = [s_device newTextureWithDescriptor:td];
-    [s_atlas replaceRegion:MTLRegionMake2D(0, 0, W, H) mipmapLevel:0
-                 withBytes:data bytesPerRow:W * 4];
-    CGContextRelease(bctx);
-    CGColorSpaceRelease(cs);
-    free(data);
+    [s_atlas replaceRegion:MTLRegionMake2D(0, 0, OB_FONT_ATLAS_W, OB_FONT_ATLAS_H)
+               mipmapLevel:0 withBytes:atlas bytesPerRow:OB_FONT_ATLAS_W];
+
+    // Codepoint -> glyph-array index (fallback '?').
+    for (int i = 0; i < 256; i++) s_glyph_index[i] = -1;
+    for (int i = 0; i < OB_FONT_GLYPH_COUNT; i++) {
+        int v = ob_font_glyphs[i].value;
+        if (v >= 0 && v < 256) s_glyph_index[v] = i;
+    }
+}
+
+// Glyph index for a codepoint, falling back to '?' then 0.
+static int glyph_of(int cp) {
+    int gi = (cp >= 0 && cp < 256) ? s_glyph_index[cp] : -1;
+    if (gi < 0) gi = s_glyph_index['?'];
+    if (gi < 0) gi = 0;
+    return gi;
 }
 
 void gfx_metal_attach(CAMetalLayer* layer) {
@@ -139,8 +122,8 @@ void gfx_metal_attach(CAMetalLayer* layer) {
     s_pipeline = [s_device newRenderPipelineStateWithDescriptor:pd error:&err];
 
     MTLSamplerDescriptor* sd = [[MTLSamplerDescriptor alloc] init];
-    sd.minFilter = MTLSamplerMinMagFilterLinear;
-    sd.magFilter = MTLSamplerMinMagFilterLinear;
+    sd.minFilter = MTLSamplerMinMagFilterNearest; // crisp pixel font, like raylib
+    sd.magFilter = MTLSamplerMinMagFilterNearest;
     s_sampler = [s_device newSamplerStateWithDescriptor:sd];
 
     build_font_atlas();
@@ -155,9 +138,9 @@ void gfx_metal_set_viewport(int full_w, int full_h, int origin_x, int origin_y) 
 
 // --- Vertex helpers ---------------------------------------------------------
 static inline void uv_white(float* u, float* v) {
-    int c = WHITE_CELL % ATLAS_COLS, r = WHITE_CELL / ATLAS_COLS;
-    *u = (c + 0.5f) * ATLAS_CW / (float)ATLAS_W;
-    *v = (r + 0.5f) * ATLAS_CH / (float)ATLAS_H;
+    // Centre of the forced-opaque bottom-right texel (nearest-sampled).
+    *u = (OB_FONT_ATLAS_W - 0.5f) / (float)OB_FONT_ATLAS_W;
+    *v = (OB_FONT_ATLAS_H - 0.5f) / (float)OB_FONT_ATLAS_H;
 }
 
 static inline void push(float x, float y, float u, float v, Color c) {
@@ -320,31 +303,44 @@ void gfx_ring(Vector2 center, float inner, float outer,
     }
 }
 
-static inline float glyph_advance(int font_size) {
-    return font_size * (float)ATLAS_CW / (float)ATLAS_CH;
-}
-
+// Text: a faithful port of raylib's DrawText -> DrawTextEx (spacing = fontSize /
+// baseSize as an int, scaleFactor = fontSize / baseSize), drawing each glyph's
+// atlas rect at its offset. Produces pixel-identical output to the other
+// platforms.
 void gfx_text(const char* text, int x, int y, int font_size, Color c) {
-    float adv = glyph_advance(font_size);
-    float gw = adv, gh = (float)font_size;
+    int fs = font_size < OB_FONT_BASE_SIZE ? OB_FONT_BASE_SIZE : font_size;
+    int spacing = fs / OB_FONT_BASE_SIZE;
+    float scale = (float)fs / OB_FONT_BASE_SIZE;
     float pen = (float)x;
     for (const unsigned char* p = (const unsigned char*)text; *p; p++) {
-        unsigned char ch = *p;
-        if (ch >= GLYPH_FIRST && ch <= GLYPH_LAST && ch != ' ') {
-            int gi = ch - GLYPH_FIRST;
-            int col = gi % ATLAS_COLS, row = gi / ATLAS_COLS;
-            float u0 = col * ATLAS_CW / (float)ATLAS_W;
-            float v0 = row * ATLAS_CH / (float)ATLAS_H;
-            float u1 = (col + 1) * ATLAS_CW / (float)ATLAS_W;
-            float v1 = (row + 1) * ATLAS_CH / (float)ATLAS_H;
-            // two textured triangles
-            push(pen,      y,      u0, v0, c); push(pen + gw, y,      u1, v0, c); push(pen + gw, y + gh, u1, v1, c);
-            push(pen,      y,      u0, v0, c); push(pen + gw, y + gh, u1, v1, c); push(pen,      y + gh, u0, v1, c);
+        int cp = *p;
+        OBGlyph g = ob_font_glyphs[glyph_of(cp)];
+        if (cp != ' ') {
+            float gx = pen + g.ox * scale, gy = y + g.oy * scale;
+            float gw = g.rw * scale,       gh = g.rh * scale;
+            float u0 = g.rx / (float)OB_FONT_ATLAS_W, v0 = g.ry / (float)OB_FONT_ATLAS_H;
+            float u1 = (g.rx + g.rw) / (float)OB_FONT_ATLAS_W;
+            float v1 = (g.ry + g.rh) / (float)OB_FONT_ATLAS_H;
+            push(gx,      gy,      u0, v0, c); push(gx + gw, gy,      u1, v0, c); push(gx + gw, gy + gh, u1, v1, c);
+            push(gx,      gy,      u0, v0, c); push(gx + gw, gy + gh, u1, v1, c); push(gx,      gy + gh, u0, v1, c);
         }
-        pen += adv;
+        float adv = (g.adv != 0) ? (float)g.adv : g.rw; // DrawTextEx uses recs.width when advanceX==0
+        pen += adv * scale + spacing;
     }
 }
 
+// MeasureText -> MeasureTextEx: sum advances (recs.width + offsetX when
+// advanceX==0), scaled, plus inter-glyph spacing.
 int gfx_measure_text(const char* text, int font_size) {
-    return (int)(strlen(text) * glyph_advance(font_size) + 0.5f);
+    int fs = font_size < OB_FONT_BASE_SIZE ? OB_FONT_BASE_SIZE : font_size;
+    int spacing = fs / OB_FONT_BASE_SIZE;
+    float scale = (float)fs / OB_FONT_BASE_SIZE;
+    float tw = 0.0f;
+    int count = 0;
+    for (const unsigned char* p = (const unsigned char*)text; *p; p++) {
+        OBGlyph g = ob_font_glyphs[glyph_of(*p)];
+        tw += (g.adv != 0) ? (float)g.adv : (g.rw + g.ox);
+        count++;
+    }
+    return (int)(tw * scale + (count > 0 ? (count - 1) : 0) * spacing);
 }
