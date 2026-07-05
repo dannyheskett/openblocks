@@ -1,6 +1,7 @@
 #include "render.h"
 #include "gfx.h"
 #include "recorder.h"
+#include <stddef.h>  // NULL
 #if !defined(PLATFORM_IOS)
 #include <raylib.h>  // window/timing + the landscape RenderTexture path; absent on iOS
 #endif
@@ -530,82 +531,84 @@ static void draw_center_panel_landscape(const char* title, const char* subtitle,
 #endif
 
 // Menu item rectangles captured by the last render_menu(), for touch hit-testing
-// (Android). Populated by the Android render_menu; stays empty on desktop.
+// (Android/iOS). Populated by the portrait render_menu; stays empty on desktop.
 static Rectangle s_menu_item_rects[8];
 static int s_menu_item_count = 0;
 
+// Computed menu geometry (each renderer fills this from its own sizing), passed
+// to the shared draw_menu_panel so the panel + title + item list are drawn once.
+typedef struct {
+    int cx, px, py, panel_w, panel_h;
+    int title_size, title_y, items_y, line_h, item_fs;
+} MenuLayout;
+
+// Draw the menu panel, centred title, and item list with selection markers.
+// `capture` records each row's rectangle for touch hit-testing (portrait);
+// landscape passes false (keyboard-only).
+static void draw_menu_panel(MenuLayout m, const char* title, const char* const* items,
+                            int count, int selected, int gap_before, bool capture) {
+    gfx_rect(m.px, m.py, m.panel_w, m.panel_h, (Color){15, 15, 25, 255});
+    gfx_rect_lines(m.px, m.py, m.panel_w, m.panel_h, LIGHTGRAY);
+    gfx_text(title, m.cx - gfx_measure_text(title, m.title_size) / 2, m.title_y, m.title_size, WHITE);
+
+    s_menu_item_count = capture ? ((count < 8) ? count : 8) : 0;
+    int y = m.items_y;
+    for (int i = 0; i < count; i++) {
+        if (gap_before == i) y += m.line_h;
+        const char* label = items[i];
+        int lw = gfx_measure_text(label, m.item_fs);
+        Color col = (i == selected) ? YELLOW : GRAY;
+        if (i == selected) {
+            gfx_text(">", m.cx - lw / 2 - m.item_fs * 3 / 2, y, m.item_fs, YELLOW);
+            gfx_text("<", m.cx + lw / 2 + m.item_fs / 2, y, m.item_fs, YELLOW);
+        }
+        gfx_text(label, m.cx - lw / 2, y, m.item_fs, col);
+        if (capture && i < 8) {
+            s_menu_item_rects[i] = (Rectangle){ (float)m.px, (float)(y - (m.line_h - m.item_fs) / 2),
+                                                (float)m.panel_w, (float)m.line_h };
+        }
+        y += m.line_h;
+    }
+}
+
 #ifdef OB_PORTRAIT
 
-// The portrait renderer draws straight to the screen at native resolution.
-static void render_frame_portrait(const Game* game) {
+// The portrait renderer draws straight to the screen at native resolution. One
+// gameplay scene with an optional centered overlay (pause / game over).
+static void draw_scene_portrait(const Game* game, const char* overlay_title,
+                                const char* overlay_sub, Color overlay_tc) {
     gfx_begin_frame();
     draw_game_portrait(game);
+    if (overlay_title) draw_center_panel_portrait(overlay_title, overlay_sub, overlay_tc);
     gfx_end_frame();
 }
 
-static void render_pause_portrait(const Game* game) {
-    gfx_begin_frame();
-    draw_game_portrait(game);
-    draw_center_panel_portrait("GAME PAUSED", "Tap to resume", YELLOW);
-    gfx_end_frame();
-}
-
-static void render_game_over_portrait(const Game* game) {
-    gfx_begin_frame();
-    draw_game_portrait(game);
-    draw_center_panel_portrait("GAME OVER", "Tap to return to menu", RED);
-    gfx_end_frame();
-}
+static void render_frame_portrait(const Game* g)     { draw_scene_portrait(g, NULL, NULL, WHITE); }
+static void render_pause_portrait(const Game* g)     { draw_scene_portrait(g, "GAME PAUSED", "Tap to resume", YELLOW); }
+static void render_game_over_portrait(const Game* g) { draw_scene_portrait(g, "GAME OVER", "Tap to return to menu", RED); }
 
 static void render_menu_portrait(const char* title, const char* const* items, int count,
                                  int selected, int gap_before) {
     int w = GetScreenWidth(), h = GetScreenHeight();
-    gfx_begin_frame();
-    gfx_clear(BLACK);
-
-    int cx = w / 2;
-    int line_h = h / 20;
-    int item_fs = h / 28;
+    int line_h = h / 20, item_fs = h / 28;
     int extra = (gap_before >= 0) ? 1 : 0;
-    int base = (w < h) ? w : h;      // keep the panel compact even in a wide window
+    int base = (w < h) ? w : h;              // keep the panel compact in a wide window
     int panel_w = base * 82 / 100;
 
     // Shrink the title if it would overrun the panel (wide tablets).
     int title_size = h / 16;
-    while (title_size > 12 && gfx_measure_text(title, title_size) > panel_w - line_h) {
-        title_size -= 2;
-    }
+    while (title_size > 12 && gfx_measure_text(title, title_size) > panel_w - line_h) title_size -= 2;
 
-    int content_h = title_size + line_h + (count + extra) * line_h;
-    int panel_h = content_h + line_h * 2;
-    int px = cx - panel_w / 2;
-    int py = (h - panel_h) / 2;
+    int panel_h = title_size + line_h + (count + extra) * line_h + line_h * 2;
+    int px = w / 2 - panel_w / 2, py = (h - panel_h) / 2;
+    MenuLayout m = { .cx = w / 2, .px = px, .py = py, .panel_w = panel_w, .panel_h = panel_h,
+                     .title_size = title_size, .title_y = py + line_h,
+                     .items_y = py + line_h + title_size + line_h,
+                     .line_h = line_h, .item_fs = item_fs };
 
-    gfx_rect(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
-    gfx_rect_lines(px, py, panel_w, panel_h, LIGHTGRAY);
-
-    gfx_text(title, cx - gfx_measure_text(title, title_size) / 2, py + line_h, title_size, WHITE);
-
-    // Capture each item's clickable row rectangle for touch hit-testing.
-    s_menu_item_count = (count < 8) ? count : 8;
-    int y = py + line_h + title_size + line_h;
-    for (int i = 0; i < count; i++) {
-        if (gap_before == i) y += line_h;
-        const char* label = items[i];
-        int lw = gfx_measure_text(label, item_fs);
-        Color col = (i == selected) ? YELLOW : GRAY;
-        if (i == selected) {
-            gfx_text(">", cx - lw / 2 - item_fs * 3 / 2, y, item_fs, YELLOW);
-            gfx_text("<", cx + lw / 2 + item_fs / 2, y, item_fs, YELLOW);
-        }
-        gfx_text(label, cx - lw / 2, y, item_fs, col);
-        if (i < 8) {
-            s_menu_item_rects[i] = (Rectangle){ (float)px, (float)(y - (line_h - item_fs) / 2),
-                                                (float)panel_w, (float)line_h };
-        }
-        y += line_h;
-    }
-
+    gfx_begin_frame();
+    gfx_clear(BLACK);
+    draw_menu_panel(m, title, items, count, selected, gap_before, true);
     gfx_end_frame();
 }
 
@@ -613,66 +616,37 @@ static void render_menu_portrait(const char* title, const char* const* items, in
 
 #ifdef OB_LANDSCAPE
 
-static void render_frame_landscape(const Game* game) {
+// Landscape draws into the fixed offscreen canvas, which present() letterboxes
+// into the window. One gameplay scene with an optional centered overlay.
+static void draw_scene_landscape(const Game* game, const char* overlay_title,
+                                 const char* overlay_sub, Color overlay_tc) {
     BeginTextureMode(canvas);
     draw_game_landscape(game);
+    if (overlay_title) draw_center_panel_landscape(overlay_title, overlay_sub, overlay_tc);
     EndTextureMode();
     present();
 }
 
-static void render_pause_landscape(const Game* game) {
-    BeginTextureMode(canvas);
-    draw_game_landscape(game);
-    draw_center_panel_landscape("GAME PAUSED", "Press any key to resume", YELLOW);
-    EndTextureMode();
-    present();
-}
-
-static void render_game_over_landscape(const Game* game) {
-    BeginTextureMode(canvas);
-    draw_game_landscape(game);
-    draw_center_panel_landscape("GAME OVER", "Press any key to return to menu", RED);
-    EndTextureMode();
-    present();
-}
+static void render_frame_landscape(const Game* g)     { draw_scene_landscape(g, NULL, NULL, WHITE); }
+static void render_pause_landscape(const Game* g)     { draw_scene_landscape(g, "GAME PAUSED", "Press any key to resume", YELLOW); }
+static void render_game_over_landscape(const Game* g) { draw_scene_landscape(g, "GAME OVER", "Press any key to return to menu", RED); }
 
 static void render_menu_landscape(const char* title, const char* const* items, int count,
                                   int selected, int gap_before) {
-    s_menu_item_count = 0; // landscape uses keyboard; no touch hit-testing
+    int cx = BASE_WIDTH / 2;
+    int line_h = 30, item_fs = 20, title_size = 44;
+    int extra = (gap_before >= 0) ? 1 : 0;
+    int panel_w = 320;
+    int panel_h = title_size + 40 + (count + extra) * line_h + 60;
+    int px = cx - panel_w / 2, py = (BASE_HEIGHT - panel_h) / 2;
+    MenuLayout m = { .cx = cx, .px = px, .py = py, .panel_w = panel_w, .panel_h = panel_h,
+                     .title_size = title_size, .title_y = py + 28,
+                     .items_y = py + 28 + title_size + 28,
+                     .line_h = line_h, .item_fs = item_fs };
+
     BeginTextureMode(canvas);
     gfx_clear(BLACK);
-
-    int cx = BASE_WIDTH / 2;
-    int line_h = 30;
-    int extra = (gap_before >= 0) ? 1 : 0;
-    int title_size = 44;
-
-    int panel_w = 320;
-    int content_h = title_size + 40 + (count + extra) * line_h;
-    int panel_h = content_h + 60;
-    int px = cx - panel_w / 2;
-    int py = (BASE_HEIGHT - panel_h) / 2;
-
-    gfx_rect(px, py, panel_w, panel_h, (Color){15, 15, 25, 255});
-    gfx_rect_lines(px, py, panel_w, panel_h, LIGHTGRAY);
-
-    gfx_text(title, cx - gfx_measure_text(title, title_size) / 2, py + 28, title_size, WHITE);
-
-    int y = py + 28 + title_size + 28;
-    for (int i = 0; i < count; i++) {
-        if (gap_before == i) y += line_h; // blank line before this item
-        const char* label = items[i];
-        int size = 20;
-        int lw = gfx_measure_text(label, size);
-        Color col = (i == selected) ? YELLOW : GRAY;
-        if (i == selected) {
-            gfx_text(">", cx - lw / 2 - 26, y, size, YELLOW);
-            gfx_text("<", cx + lw / 2 + 14, y, size, YELLOW);
-        }
-        gfx_text(label, cx - lw / 2, y, size, col);
-        y += line_h;
-    }
-
+    draw_menu_panel(m, title, items, count, selected, gap_before, false);
     EndTextureMode();
     present();
 }

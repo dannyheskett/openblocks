@@ -31,7 +31,10 @@ typedef enum {
     ACT_EXIT,
 } MenuAction;
 
-#define MAX_MENU_ITEMS 5
+// Upper bound on labels[]/actions[]: one slot per MenuAction (6). Each action
+// appears at most once, so build_menu can never overflow — at most 5 are shown
+// at once in practice (Resume + New + Sound + Record + Exit on desktop).
+#define MAX_MENU_ITEMS 6
 
 // Map the events produced during a frame to sound effects.
 static void play_event_sounds(unsigned events) {
