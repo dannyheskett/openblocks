@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Upload the openblocks APK to AWS Device Farm and run a Fuzz test on a real
-device, reporting pass/fail. Used by the devicefarm CI workflow.
+"""Upload the openblocks app (.apk or .ipa) to AWS Device Farm and run a Fuzz
+test on a real device, reporting pass/fail. Used by the devicefarm CI workflow.
 
-openblocks is a native raylib game with no tappable UI widgets, so a scripted
-Appium/Espresso test would give little; the built-in Fuzz test (random taps)
-validates that the app launches and runs without crashing on a real device.
+openblocks is a native game with no tappable UI widgets, so a scripted
+Appium/Espresso/XCUITest test would give little; the built-in Fuzz test (random
+taps) validates that the app launches and runs without crashing on a real
+device. The platform (Android vs iOS) is inferred from the app file extension;
+the unsigned iOS .ipa works because Device Farm re-signs apps on upload.
 
 Config via env (no ARNs are hard-coded, so this file is safe to commit):
   DEVICEFARM_PROJECT_ARN   required  the Device Farm project ARN
-  APK_PATH                 required  path to the .apk to test
+  APP_PATH                 required  path to the .apk or .ipa to test
   DEVICEFARM_UPLOAD_ONLY   optional  "1" to stop after upload (free; no devices)
   DEVICEFARM_MAX_DEVICES   optional  device count for the run (default 1)
   AWS_REGION               optional  defaults to us-west-2
@@ -22,9 +24,16 @@ import boto3
 
 REGION = os.environ.get("AWS_REGION", "us-west-2")
 PROJECT = os.environ["DEVICEFARM_PROJECT_ARN"]
-APK_PATH = os.environ["APK_PATH"]
+APP_PATH = os.environ["APP_PATH"]
 UPLOAD_ONLY = os.environ.get("DEVICEFARM_UPLOAD_ONLY") == "1"
 MAX_DEVICES = int(os.environ.get("DEVICEFARM_MAX_DEVICES", "1"))
+
+if APP_PATH.endswith(".apk"):
+    PLATFORM, UPLOAD_TYPE = "ANDROID", "ANDROID_APP"
+elif APP_PATH.endswith(".ipa"):
+    PLATFORM, UPLOAD_TYPE = "IOS", "IOS_APP"
+else:
+    sys.exit(f"APP_PATH must be a .apk or .ipa, got: {APP_PATH}")
 
 df = boto3.client("devicefarm", region_name=REGION)
 
@@ -64,20 +73,20 @@ def download_media_artifacts(run_arn, out_dir):
 
 
 def main():
-    # 1) Register an upload slot and PUT the APK to the presigned URL.
+    # 1) Register an upload slot and PUT the app to the presigned URL.
     up = df.create_upload(
-        projectArn=PROJECT, name="openblocks.apk", type="ANDROID_APP"
+        projectArn=PROJECT, name=os.path.basename(APP_PATH), type=UPLOAD_TYPE
     )["upload"]
-    with open(APK_PATH, "rb") as f:
+    with open(APP_PATH, "rb") as f:
         data = f.read()
     req = urllib.request.Request(
         up["url"], data=data, method="PUT",
         headers={"Content-Type": "application/octet-stream"},
     )
     urllib.request.urlopen(req).read()
-    print(f"uploaded {len(data)} bytes ({APK_PATH})", flush=True)
+    print(f"uploaded {len(data)} bytes ({APP_PATH})", flush=True)
 
-    # 2) Wait for Device Farm to validate the APK.
+    # 2) Wait for Device Farm to validate the app.
     up = poll(
         lambda: df.get_upload(arn=up["arn"])["upload"],
         lambda o: o["status"] in ("SUCCEEDED", "FAILED"),
@@ -92,15 +101,15 @@ def main():
         print("DEVICEFARM_UPLOAD_ONLY set — stopping before scheduling a run.")
         return
 
-    # 3) Schedule a Fuzz run on real Android device(s).
+    # 3) Schedule a Fuzz run on real device(s) of the matching platform.
     run = df.schedule_run(
         projectArn=PROJECT,
         appArn=up["arn"],
-        name="openblocks CI fuzz",
+        name=f"openblocks CI fuzz ({PLATFORM})",
         test={"type": "BUILTIN_FUZZ"},
         deviceSelectionConfiguration={
             "filters": [
-                {"attribute": "PLATFORM", "operator": "EQUALS", "values": ["ANDROID"]},
+                {"attribute": "PLATFORM", "operator": "EQUALS", "values": [PLATFORM]},
                 {"attribute": "AVAILABILITY", "operator": "EQUALS", "values": ["HIGHLY_AVAILABLE"]},
             ],
             "maxDevices": MAX_DEVICES,
