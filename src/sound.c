@@ -1,18 +1,5 @@
 #include "sound.h"
-
-#if defined(PLATFORM_IOS)
-
-// iOS: the audio backend is not wired yet. The game is fully playable silent;
-// an AVAudioEngine backend is a follow-up. Silent no-op stubs keep the API.
-void sound_init(void)     {}
-void sound_shutdown(void) {}
-bool sound_is_enabled(void) { return false; }
-void sound_toggle(void)   {}
-void sound_play(SfxId id) { (void)id; }
-
-#else
-
-#include <raylib.h>
+#include "audio.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -20,32 +7,26 @@ void sound_play(SfxId id) { (void)id; }
 // All effects are short, generated PCM clips built from three classic 8-bit
 // building blocks: square tones (with selectable duty cycle), pitch sweeps, and
 // white noise. A simple linear decay envelope on each clip gives the percussive,
-// plucky character of vintage sound chips.
+// plucky character of vintage sound chips. Playback goes through the audio.h
+// backend (raylib on desktop/web/android, AVAudioEngine on iOS); this file is
+// backend-agnostic and does the synthesis.
 
 #define SAMPLE_RATE 44100
 
-static bool  audio_ready = false;
-static bool  enabled = false;        // off by default
-static Sound effects[SFX_COUNT];
+static bool        enabled = false;        // off by default
+static AudioHandle effects[SFX_COUNT];
 
-static Sound sound_from_samples(int16_t* samples, int count) {
-    Wave wave = {
-        .frameCount = (unsigned int)count,
-        .sampleRate = SAMPLE_RATE,
-        .sampleSize = 16,
-        .channels = 1,
-        .data = samples,
-    };
-    Sound s = LoadSoundFromWave(wave);
+static AudioHandle load_samples(int16_t* samples, int count) {
+    AudioHandle h = audio_load(samples, count, SAMPLE_RATE);
     free(samples);
-    return s;
+    return h;
 }
 
 // A square tone of fixed frequency with a linear amplitude decay.
-static Sound make_tone(float freq, float dur, float duty, float vol) {
+static AudioHandle make_tone(float freq, float dur, float duty, float vol) {
     int n = (int)(dur * SAMPLE_RATE);
     int16_t* buf = malloc(sizeof(int16_t) * n);
-    if (!buf) return (Sound){0};
+    if (!buf) return -1;
     for (int i = 0; i < n; i++) {
         float phase = freq * ((float)i / SAMPLE_RATE);
         phase -= (int)phase;
@@ -53,14 +34,14 @@ static Sound make_tone(float freq, float dur, float duty, float vol) {
         float v = (phase < duty ? 1.0f : -1.0f) * vol * env;
         buf[i] = (int16_t)(v * 32767.0f);
     }
-    return sound_from_samples(buf, n);
+    return load_samples(buf, n);
 }
 
 // A square tone whose pitch glides from f0 to f1 over its duration.
-static Sound make_sweep(float f0, float f1, float dur, float duty, float vol) {
+static AudioHandle make_sweep(float f0, float f1, float dur, float duty, float vol) {
     int n = (int)(dur * SAMPLE_RATE);
     int16_t* buf = malloc(sizeof(int16_t) * n);
-    if (!buf) return (Sound){0};
+    if (!buf) return -1;
     float phase = 0.0f;
     for (int i = 0; i < n; i++) {
         float freq = f0 + (f1 - f0) * ((float)i / n);
@@ -70,14 +51,14 @@ static Sound make_sweep(float f0, float f1, float dur, float duty, float vol) {
         float v = (p < duty ? 1.0f : -1.0f) * vol * env;
         buf[i] = (int16_t)(v * 32767.0f);
     }
-    return sound_from_samples(buf, n);
+    return load_samples(buf, n);
 }
 
 // A burst of white noise with a linear decay — used for the "thunk" of a lock.
-static Sound make_noise(float dur, float vol) {
+static AudioHandle make_noise(float dur, float vol) {
     int n = (int)(dur * SAMPLE_RATE);
     int16_t* buf = malloc(sizeof(int16_t) * n);
-    if (!buf) return (Sound){0};
+    if (!buf) return -1;
     float hold = 0.0f;
     for (int i = 0; i < n; i++) {
         if (i % 8 == 0) { // sample-and-hold gives a grittier, lower-rate hiss
@@ -86,15 +67,15 @@ static Sound make_noise(float dur, float vol) {
         float env = 1.0f - (float)i / n;
         buf[i] = (int16_t)(hold * vol * env * 32767.0f);
     }
-    return sound_from_samples(buf, n);
+    return load_samples(buf, n);
 }
 
 // A quick run of square tones — a tiny arpeggio for jingles.
-static Sound make_arp(const float* freqs, int count, float per_note, float duty, float vol) {
+static AudioHandle make_arp(const float* freqs, int count, float per_note, float duty, float vol) {
     int note_n = (int)(per_note * SAMPLE_RATE);
     int n = note_n * count;
     int16_t* buf = malloc(sizeof(int16_t) * n);
-    if (!buf) return (Sound){0};
+    if (!buf) return -1;
     for (int j = 0; j < count; j++) {
         for (int i = 0; i < note_n; i++) {
             float phase = freqs[j] * ((float)i / SAMPLE_RATE);
@@ -104,13 +85,12 @@ static Sound make_arp(const float* freqs, int count, float per_note, float duty,
             buf[j * note_n + i] = (int16_t)(v * 32767.0f);
         }
     }
-    return sound_from_samples(buf, n);
+    return load_samples(buf, n);
 }
 
 void sound_init(void) {
-    InitAudioDevice();
-    audio_ready = IsAudioDeviceReady();
-    if (!audio_ready) return;
+    audio_init();
+    if (!audio_ready()) return;
 
     static const float quad_arp[]   = {523.25f, 659.25f, 783.99f, 1046.50f}; // C E G C
     static const float select_arp[] = {659.25f, 987.77f};                    // E B
@@ -130,19 +110,17 @@ void sound_init(void) {
 }
 
 void sound_shutdown(void) {
-    if (!audio_ready) return;
+    if (!audio_ready()) return;
     for (int i = 0; i < SFX_COUNT; i++) {
-        UnloadSound(effects[i]);
+        audio_unload(effects[i]);
     }
-    CloseAudioDevice();
+    audio_shutdown();
 }
 
 bool sound_is_enabled(void) { return enabled; }
 void sound_toggle(void) { enabled = !enabled; }
 
 void sound_play(SfxId id) {
-    if (!enabled || !audio_ready || id < 0 || id >= SFX_COUNT) return;
-    PlaySound(effects[id]);
+    if (!enabled || !audio_ready() || id < 0 || id >= SFX_COUNT) return;
+    audio_play(effects[id]);
 }
-
-#endif // PLATFORM_IOS
