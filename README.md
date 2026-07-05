@@ -1,94 +1,147 @@
 # openblocks
 
-A falling-block puzzle game written in C with Raylib.
+A falling-block puzzle game written in C. It runs natively on Windows, macOS,
+Linux, Android, and iOS, and in the browser via WebAssembly.
+
+Rendering, input, and audio go through raylib 6.0 on every platform except iOS,
+which uses a native Metal backend with no raylib (see
+[Architecture](#architecture)). The game logic (`src/game.c`) is
+platform-independent and shared unchanged.
+
+## Platforms
+
+| Platform | Build | Renderer | Input |
+|----------|-------|----------|-------|
+| Linux / Windows / macOS | native (raylib) | landscape | keyboard |
+| Web (WASM) | Emscripten (raylib) | landscape **or** portrait, chosen at runtime | keyboard + touch |
+| Android | NativeActivity (raylib) | portrait | touch |
+| iOS | native Metal (no raylib) | portrait | touch |
+
+## Rendering modes
+
+There are two renderers. Native desktop compiles only landscape; Android and iOS
+compile only portrait; the web build compiles both and selects one at runtime.
+
+- **Landscape** — a fixed 640×480 offscreen canvas, letterbox-scaled to the
+  window (integer scale on native desktop, fractional on web). Three-column
+  layout: piece statistics on the left, the playfield centered, and
+  lines / score / level / next on the right.
+- **Portrait** — adaptive to the live screen size. A title bar with a menu
+  button is pinned to the top, a SCORE / LINES / LEVEL / NEXT band sits below it,
+  the playfield fills the middle at the largest square cell that fits, and a row
+  of on-screen buttons sits in a bottom control bar.
+
+The web build picks the renderer from the pointer type
+(`matchMedia('(pointer: coarse)')`): a phone or tablet gets portrait, a desktop
+browser gets landscape. A **Controls: On/Off** menu item overrides the choice.
+
+## Controls
+
+**Keyboard** (desktop, and desktop browsers):
+
+- **Left / Right** (or A / D): move
+- **Down** (or S): soft drop
+- **Space** (or Up / W / X / Z): rotate
+- **Enter**: pause / resume
+- **Escape**: return to the menu (the game stays resumable); on the menu, exit
+- **Alt+Enter**: toggle fullscreen
+- **Up / Down** (or W / S) + **Enter / Space**: menu navigation
+
+**Touch** (Android, iOS, and mobile browsers):
+
+- **◀ / ▶** buttons: move (hold to auto-repeat)
+- **Rotate** button, or a tap on the playfield: rotate
+- **Drop** button: tap for a hard drop, hold for a soft drop
+- **☰** button (top-right): return to the menu
+- **Swipe up / down** + **tap**: menu navigation and select
 
 ## Building
 
-### Linux/WSL2
+raylib is built once from source into a gitignored install directory (per
+platform) before the game is built. Each `scripts/build_raylib_*.sh` clones
+raylib (pinned via `RAYLIB_TAG`, default `6.0`) and installs its headers and
+`libraylib.a`. CI runs these scripts before each build.
+
+### Desktop
 
 ```bash
-make
+./scripts/build_raylib_linux.sh      # once, on a fresh clone
+make                                 # -> build/openblocks   (dev, -O2)
 make run
+make release                         # -> build/openblocks-release (-O3)
 ```
 
-Or use the helper script, which builds (incrementally) and runs in one step:
+Windows (mingw-w64 cross-compile) and macOS (universal arm64 + x86_64):
 
 ```bash
-./run.sh
+./scripts/build_raylib_windows.sh && make windows   # -> build/openblocks-x64.exe, -x86.exe
+./scripts/build_raylib_mac.sh     && make mac        # -> build/openblocks-mac
 ```
 
-### Release Build
+### Android (needs the Android SDK + NDK)
 
 ```bash
-make release
-make run-release
+./scripts/build_raylib_android.sh
+make android        # -> build/openblocks.apk   (debug-signed, sideloadable)
+make android-play   # -> build/openblocks.aab   (Play App Bundle; PLAY_* signing vars)
 ```
 
-### Windows Cross-Compile
+The app is a `NativeActivity` (no Gradle); a small `OpenblocksActivity` Java
+class (compiled with `javac` + `d8`) enables immersive full-screen. arm64-v8a,
+`targetSdk` 35, 16 KB-page aligned.
 
-Requires the mingw-w64 toolchain:
+### iOS (needs macOS + Xcode; no raylib)
 
 ```bash
-make windows
+make ios-sim   # -> build/ios-sim/Openblocks.app   (Simulator, arm64)
+make ios       # -> build/openblocks.ipa           (device arm64, unsigned)
 ```
 
-This produces:
-- `build/openblocks-x64.exe` (64-bit)
-- `build/openblocks-x86.exe` (32-bit)
+The `.ipa` is unsigned; AWS Device Farm re-signs it on upload, and Sideloadly /
+a free Apple ID can install it on a device. C sources build with `clang`, the
+Objective-C++ backend (`ios/`) with `clang++`.
 
-### macOS
-
-On a Mac (with the Xcode command-line tools), build a universal
-(arm64 + x86_64) binary:
+### Web (needs Emscripten)
 
 ```bash
-make mac    # -> build/openblocks-mac
+./scripts/build_raylib_web.sh
+make web        # -> build/web/openblocks.{html,js,wasm}
 ```
+
+Serve `build/web` over HTTP (not `file://`) and open `openblocks.html`.
 
 ## Tests
 
-Unit tests cover the game logic (scoring, the gravity curve, and line
-detection/collapse) with no raylib or window required:
+Game-logic unit tests (scoring, gravity, line detection/collapse) with no raylib
+or window required:
 
 ```bash
 make test
 ```
 
-## Continuous Integration
+## Continuous integration and releases
 
-Every pull request to `main` builds openblocks on Linux, Windows (mingw-w64
-cross-compile, x64 + x86), and macOS (universal) via GitHub Actions
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and runs `make test`
-on the Linux job. All checks must pass before a PR can merge.
+Every pull request to `main` builds all platforms via GitHub Actions
+([`ci.yml`](.github/workflows/ci.yml)) — Linux, Windows (x64/x86), macOS
+(universal), Android (APK + a packaging check of the AAB), Web (WASM), and iOS
+(a Metal app booted in the Simulator and screenshotted) — and runs `make test`.
+All checks must pass to merge.
 
-Tagged releases (`release-N`) are cut by the
-[`release`](.github/workflows/release.yml) workflow (manual dispatch), which
-builds all three platforms and attaches prebuilt Linux, Windows (x64/x86), and
-macOS (universal) archives to the GitHub Release.
+Pushing to `main` cuts the next `release-N` via
+[`release.yml`](.github/workflows/release.yml), which attaches per-platform
+archives, the Android APK, the iOS `.ipa`, and the WASM bundle to the GitHub
+Release. The web build is also published to
+[danheskett.com/dist/openblocks](https://danheskett.com/dist/openblocks/).
 
-## Controls
+## Recording (desktop only)
 
-- **Left / Right** (arrows or A / D): move
-- **Down** (arrow or S): soft drop
-- **Space** (or Up / W / X / Z): rotate
-- **Enter**: pause (press any key to resume)
-- **Escape**: in-game, return to the menu (the game can be resumed); on the
-  menu, exit
-- **Alt+Enter**: toggle fullscreen
-- **Up / Down** (or W / S): move the menu cursor; **Enter** (or Space): select
-
-The window is a fixed 640x480 unless toggled to fullscreen. Sound is off by
-default and can be toggled from the menu.
-
-## Recording
-
-openblocks can record a frame-fidelity H.264 MP4 of the session (one video
-frame per rendered frame, constant 60 fps, no external tools). Recording is off
-by default and produces no overhead when off.
+The desktop builds can record a frame-fidelity H.264 MP4 of the session (one
+video frame per rendered frame, constant 60 fps, no external tools). Recording
+is compiled out of the mobile and web builds.
 
 - Toggle **Record: On/Off** from the menu (writes an auto-named
-  `openblocks-YYYYMMDD-HHMMSS.mp4` in the working directory), or
-- start recording from the command line:
+  `openblocks-YYYYMMDD-HHMMSS.mp4` in the working directory), or start it from
+  the command line:
 
 ```bash
 ./build/openblocks --record            # auto-named file
@@ -96,57 +149,55 @@ by default and produces no overhead when off.
 ```
 
 A red **REC** indicator shows on-screen while recording (it is not part of the
-captured video). The file is finalized when recording is toggled off or the
-program exits. Encoding is synchronous, so on slower machines the game may run
+captured video). Encoding is synchronous, so on slower machines the game may run
 below real-time while recording; the video stays exactly one frame per frame.
+
+## Architecture
+
+- `src/game.c` — pure game logic (no rendering/input/audio), shared by all
+  platforms and covered by `make test`.
+- `src/render.c` draws through a small immediate-mode primitive layer
+  (`src/gfx.h`): `src/gfx_raylib.c` wraps raylib (desktop / web / android);
+  `ios/gfx_metal.mm` is a native Metal implementation. `src/ob_types.h` supplies
+  raylib-compatible types so the shared code compiles without raylib on iOS.
+- Audio is a similar seam (`src/audio.h`): `src/audio_raylib.c` (raylib) vs
+  `ios/audio_ios.mm` (AVAudioEngine). Effects are synthesized at startup (no
+  audio files); sound is off by default.
+- iOS backend: `ios/plat_ios.mm` (touch / screen / timing), `ios/ios_main.mm`
+  (UIKit app + `CAMetalLayer` view + `CADisplayLink` loop), and the embedded
+  raylib default font (`src/font_atlas.h`, generated by
+  `scripts/gen_font_atlas.c`) so iOS text matches the other platforms.
 
 ## Dependencies
 
-- A C99 compiler (GCC or Clang)
-- [Raylib](https://github.com/raysan5/raylib) 6.0, built as a static library.
-  The install directories are gitignored, so build raylib once on a fresh clone
-  with the matching helper script:
-  - Linux: `./scripts/build_raylib_linux.sh` → `third_party/raylib-install`
-  - Windows cross (mingw-w64): `./scripts/build_raylib_windows.sh` →
-    `third_party/raylib-install-win64` and `-win32`
-  - macOS (universal): `./scripts/build_raylib_mac.sh` →
-    `third_party/raylib-install-mac`
-- For the Windows cross-compile: the mingw-w64 toolchain
+- A C99 compiler (GCC or Clang); a C++ / Objective-C++ compiler for the iOS
+  backend.
+- [raylib](https://github.com/raysan5/raylib) 6.0 (static) on all platforms
+  except iOS, built by the `scripts/build_raylib_*.sh` helpers.
+- The MP4 recorder uses two vendored public-domain (CC0) single-header
+  libraries: [minih264](third_party/minih264) (H.264 encoder) and
+  [minimp4](third_party/minimp4) (MP4 muxer). No external tools or shared
+  libraries.
 
-Each script clones raylib (pinned via `RAYLIB_TAG`, default `6.0`) and installs
-its headers and `libraylib.a` into the path the Makefile expects. CI runs the
-same scripts before each platform build.
+## Project structure
 
-The MP4 recorder uses two vendored single-header libraries, both public domain
-(CC0): [minih264](third_party/minih264) (H.264 encoder) and
-[minimp4](third_party/minimp4) (MP4 muxer). No external tools or shared
-libraries are required.
-
-The MP4 recorder uses two vendored single-header libraries, both public domain
-(CC0): [minih264](third_party/minih264) (H.264 encoder) and
-[minimp4](third_party/minimp4) (MP4 muxer). No external tools or shared
-libraries are required.
+```
+openblocks/
+├── src/            # shared C sources + gfx/audio raylib backends
+├── ios/            # native Metal / UIKit backend (Objective-C++)
+├── android/        # NativeActivity manifest, resources, Java activity
+├── web/            # Emscripten HTML shell
+├── scripts/        # raylib build scripts, asset/font generators
+├── third_party/    # vendored single-header libs (minih264, minimp4)
+├── tests/          # game-logic unit tests
+├── docs/           # design notes
+├── Makefile
+├── LICENSE         # MIT (this project's own code)
+└── NOTICE          # third-party attributions
+```
 
 ## License
 
 openblocks' own code is released under the [MIT License](LICENSE). The vendored
 `minih264` and `minimp4` libraries are public domain (CC0); see [NOTICE](NOTICE)
 for attributions.
-
-## Project Structure
-
-```
-openblocks/
-├── src/           # Source files
-├── third_party/   # Vendored single-header libs (minih264, minimp4)
-├── Makefile       # Build configuration
-├── run.sh         # Build-and-run helper
-├── LICENSE        # MIT (this project's own code)
-├── NOTICE         # Third-party attributions
-└── README.md
-```
-
-## Notes
-
-Sound effects are generated procedurally at startup (no audio files) for a
-crunchy chiptune feel.
