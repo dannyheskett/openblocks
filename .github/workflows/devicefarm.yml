@@ -64,8 +64,10 @@ jobs:
           DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
           DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
         run: |
-          python3 -m pip install --quiet boto3
-          python3 scripts/devicefarm_run.py
+          # venv: macOS runners' Homebrew python rejects bare pip installs (PEP 668)
+          python3 -m venv "$RUNNER_TEMP/df-venv"
+          "$RUNNER_TEMP/df-venv/bin/pip" install --quiet boto3
+          "$RUNNER_TEMP/df-venv/bin/python" scripts/devicefarm_run.py
       - name: Upload Device Farm screenshots/video
         if: always()
         uses: actions/upload-artifact@v7
@@ -94,8 +96,10 @@ jobs:
           DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
           DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
         run: |
-          python3 -m pip install --quiet boto3
-          python3 scripts/devicefarm_run.py
+          # venv: macOS runners' Homebrew python rejects bare pip installs (PEP 668)
+          python3 -m venv "$RUNNER_TEMP/df-venv"
+          "$RUNNER_TEMP/df-venv/bin/pip" install --quiet boto3
+          "$RUNNER_TEMP/df-venv/bin/python" scripts/devicefarm_run.py
       - name: Upload Device Farm screenshots/video
         if: always()
         uses: actions/upload-artifact@v7
