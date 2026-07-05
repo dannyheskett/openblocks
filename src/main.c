@@ -55,12 +55,13 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     // the toggle would do nothing there — omit it.
     labels[n] = recorder_active() ? "Record: On" : "Record: Off"; actions[n++] = ACT_RECORD;
 #endif
-#ifdef PLATFORM_WEB
+#if defined(PLATFORM_WEB)
     // The web build ships both renderers; let the player pick (auto-detected by
     // pointer type, but a 2-in-1 or a preference may want the other).
     labels[n] = render_use_portrait() ? "Controls: On" : "Controls: Off"; actions[n++] = ACT_CONTROLS;
     // A browser tab can't be closed from code, so no Exit on web.
-#else
+#elif !defined(PLATFORM_IOS)
+    // iOS apps don't self-terminate (Apple guidelines), so no Exit there either.
     labels[n] = "Exit"; actions[n++] = ACT_EXIT;
 #endif
     return n;

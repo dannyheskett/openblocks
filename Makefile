@@ -14,7 +14,8 @@ RAYLIB_WIN32 := third_party/raylib-install-win32
 MINIH264_INC := third_party/minih264
 MINIMP4_INC  := third_party/minimp4
 
-SRC := src/main.c src/game.c src/input.c src/render.c src/gfx_raylib.c src/sound.c \
+SRC := src/main.c src/game.c src/input.c src/render.c src/gfx_raylib.c \
+       src/sound.c src/audio_raylib.c \
        src/recorder.c src/encode_h264.c src/encode_mux.c
 
 # Shared standard/warning flags and vendored-header include paths.
@@ -338,11 +339,11 @@ $(WEB_OUT): $(WEB_SRC) $(wildcard src/*.h) web/shell.html | $(WEB_OUT_DIR)
 IOS_MIN        ?= 13.0
 IOS_APP_NAME   := Openblocks
 IOS_C_SRC      := src/game.c src/main.c src/render.c src/input.c src/sound.c src/recorder.c
-IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm
+IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm ios/audio_ios.mm
 IOS_CFLAGS     := -std=c99   -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
 IOS_MMFLAGS    := -std=c++14 -fobjc-arc -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
 IOS_FRAMEWORKS := -framework UIKit -framework Metal -framework QuartzCore \
-                  -framework CoreGraphics -framework Foundation
+                  -framework CoreGraphics -framework AVFoundation -framework Foundation
 IOS_DEPS       := $(IOS_C_SRC) $(IOS_MM_SRC) $(wildcard src/*.h ios/*.h) ios/Info.plist
 
 # $(call ios_build,<sdk>,<target-triple>,<app-dir>,<obj-dir>) — compile + link
