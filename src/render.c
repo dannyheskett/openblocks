@@ -116,6 +116,41 @@ static void draw_piece_centered(int piece_type, int rotation, int box_x, int box
     }
 }
 
+// Playfield at (play_x, play_y) with square cell size `cell`: border, background,
+// grid, locked cells, the active piece, and the four-line-clear flash. Shared by
+// both renderers, which differ only in the cell size and where the field sits.
+static void draw_playfield(const Game* game, int play_x, int play_y, int cell) {
+    int field_w = cell * PLAYFIELD_WIDTH;
+    int field_h = cell * PLAYFIELD_HEIGHT;
+
+    gfx_rect_lines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
+                   field_w + BORDER_WIDTH * 2, field_h + BORDER_WIDTH * 2, LIGHTGRAY);
+    gfx_rect(play_x, play_y, field_w, field_h, BOARD_BG);
+    for (int y = 0; y <= PLAYFIELD_HEIGHT; y++)
+        gfx_line(play_x, play_y + y * cell, play_x + field_w, play_y + y * cell, GRID_LINE);
+    for (int x = 0; x <= PLAYFIELD_WIDTH; x++)
+        gfx_line(play_x + x * cell, play_y, play_x + x * cell, play_y + field_h, GRID_LINE);
+
+    for (int y = 0; y < PLAYFIELD_HEIGHT; y++) {
+        for (int x = 0; x < PLAYFIELD_WIDTH; x++) {
+            if (game->cells[y][x]) {
+                Color col = color_from_piece(game->cells[y][x] - 1, game->level);
+                gfx_rect(play_x + x * cell + 1, play_y + y * cell + 1, cell - 2, cell - 2, col);
+            }
+        }
+    }
+
+    // Active piece during play; the four-line clear flashes cleared rows white.
+    if (game->phase == PHASE_PLAY) {
+        Color piece_color = color_from_piece(game->current_piece.type, game->level);
+        draw_piece_ex(&game->current_piece, play_x, play_y, cell, piece_color);
+    } else if (game->clear_count >= 4 && (game->clear_step % 2 == 0)) {
+        for (int i = 0; i < game->clear_count; i++)
+            gfx_rect(play_x, play_y + game->clear_rows[i] * cell, field_w, cell,
+                     (Color){255, 255, 255, 90});
+    }
+}
+
 void render_init(void) {
 #if defined(PLATFORM_IOS)
     // iOS: UIKit owns the window/surface and drives the loop (CADisplayLink); the
@@ -379,36 +414,7 @@ static void draw_game_portrait(const Game* game) {
     Color next_color = color_from_piece(game->next_piece.type, game->level);
     draw_piece_centered(game->next_piece.type, 0, nbox_x, nbox_y, nbox_w, nbox_h, ncell, next_color);
 
-    // Playfield: border, background, grid.
-    gfx_rect_lines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
-                       field_w + BORDER_WIDTH * 2, field_h + BORDER_WIDTH * 2, LIGHTGRAY);
-    gfx_rect(play_x, play_y, field_w, field_h, BOARD_BG);
-    for (int y = 0; y <= PLAYFIELD_HEIGHT; y++)
-        gfx_line(play_x, play_y + y * cell, play_x + field_w, play_y + y * cell, GRID_LINE);
-    for (int x = 0; x <= PLAYFIELD_WIDTH; x++)
-        gfx_line(play_x + x * cell, play_y, play_x + x * cell, play_y + field_h, GRID_LINE);
-
-    // Locked cells.
-    for (int y = 0; y < PLAYFIELD_HEIGHT; y++) {
-        for (int x = 0; x < PLAYFIELD_WIDTH; x++) {
-            if (game->cells[y][x]) {
-                int piece_type = game->cells[y][x] - 1;
-                Color col = color_from_piece(piece_type, game->level);
-                gfx_rect(play_x + x * cell + 1, play_y + y * cell + 1,
-                              cell - 2, cell - 2, col);
-            }
-        }
-    }
-
-    // Active piece during play; the four-line clear flashes cleared rows white.
-    if (game->phase == PHASE_PLAY) {
-        Color piece_color = color_from_piece(game->current_piece.type, game->level);
-        draw_piece_ex(&game->current_piece, play_x, play_y, cell, piece_color);
-    } else if (game->clear_count >= 4 && (game->clear_step % 2 == 0)) {
-        for (int i = 0; i < game->clear_count; i++)
-            gfx_rect(play_x, play_y + game->clear_rows[i] * cell, field_w, cell,
-                          (Color){255, 255, 255, 90});
-    }
+    draw_playfield(game, play_x, play_y, cell);
 
     draw_touch_buttons();
 }
@@ -464,46 +470,7 @@ static void draw_game_landscape(const Game* game) {
     }
 
     // Center: playfield
-    gfx_rect_lines(play_x - BORDER_WIDTH, play_y - BORDER_WIDTH,
-                       field_w + BORDER_WIDTH * 2,
-                       PLAYFIELD_HEIGHT * CELL_SIZE + BORDER_WIDTH * 2, LIGHTGRAY);
-
-    gfx_rect(play_x, play_y, field_w, PLAYFIELD_HEIGHT * CELL_SIZE, BOARD_BG);
-
-    for (int y = 0; y <= PLAYFIELD_HEIGHT; y++) {
-        gfx_line(play_x, play_y + y * CELL_SIZE, play_x + field_w, play_y + y * CELL_SIZE, GRID_LINE);
-    }
-    for (int x = 0; x <= PLAYFIELD_WIDTH; x++) {
-        gfx_line(play_x + x * CELL_SIZE, play_y, play_x + x * CELL_SIZE, play_y + PLAYFIELD_HEIGHT * CELL_SIZE, GRID_LINE);
-    }
-
-    for (int y = 0; y < PLAYFIELD_HEIGHT; y++) {
-        for (int x = 0; x < PLAYFIELD_WIDTH; x++) {
-            if (game->cells[y][x]) {
-                int piece_type = game->cells[y][x] - 1;
-                Color col = color_from_piece(piece_type, game->level);
-                int px = play_x + x * CELL_SIZE;
-                int py = play_y + y * CELL_SIZE;
-                gfx_rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2, col);
-            }
-        }
-    }
-
-    // The active piece is only drawn during normal play. During the clear wipe
-    // the just-locked piece is already part of the board (and is being erased).
-    if (game->phase == PHASE_PLAY) {
-        Color piece_color = color_from_piece(game->current_piece.type, game->level);
-        draw_piece_ex(&game->current_piece, play_x, play_y, CELL_SIZE, piece_color);
-    } else {
-        // A four-line clear flashes the cleared rows white for emphasis.
-        if (game->clear_count >= 4 && (game->clear_step % 2 == 0)) {
-            for (int i = 0; i < game->clear_count; i++) {
-                int py = play_y + game->clear_rows[i] * CELL_SIZE;
-                gfx_rect(play_x, py, PLAYFIELD_WIDTH * CELL_SIZE, CELL_SIZE,
-                              (Color){255, 255, 255, 90});
-            }
-        }
-    }
+    draw_playfield(game, play_x, play_y, CELL_SIZE);
 
     // Right column: lines, score, level, next
     gfx_text("LINES", right_x, 40, 12, WHITE);
