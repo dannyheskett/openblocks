@@ -7,10 +7,11 @@
   reflowed phone layout; fullscreen with no title bar.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          package="com.danheskett.openblocks"
-          android:versionCode="1"
-          android:versionName="1.0">
+          package="com.danheskett.openblocks">
 
+    <!-- versionCode/versionName are intentionally absent: aapt/aapt2
+         - -version-code/- -version-name only inject when the manifest has none,
+         so hardcoding them here would silently pin every Play upload to 1. -->
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
