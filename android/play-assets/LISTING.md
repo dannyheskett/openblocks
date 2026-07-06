@@ -10,7 +10,8 @@ listing**, plus **Store settings** for category). Images regenerate with
 |------|-----------|------|
 | `icon-512.png` | App icon | 512×512 PNG (32-bit) |
 | `feature-graphic-1024x500.png` | Feature graphic | 1024×500 PNG/JPG |
-| _screenshots/_ (TODO) | Phone screenshots | 2–8, min 320px, ≤2:1 aspect |
+| `screenshots/phone/` | Phone screenshots | 4× 1080×1920 PNG (9:16, promo-eligible) |
+| `screenshots/tablet/` | 7-inch and 10-inch tablet screenshots | 4× 2160×3840 PNG (9:16, same files fit both slots) |
 
 ## App name (≤30 chars)
 
