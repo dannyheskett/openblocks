@@ -10,45 +10,58 @@
 // reclaims the height; buttons stay ~0.72*bar (comfortably above the 44pt min).
 static int control_bar_h(int h) { return h / 8; }
 
-// Height of the single compact top bar (title + score + menu button). Replaces
-// the old title bar + separate HUD band; the freed height grows the playfield,
-// and the stats that used to sit in the HUD band move into the side gutters.
-static int title_bar_h(int h) { return h / 13; }
-
-void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
+// Shared bottom-row geometry: the four game keys plus the menu/pause button,
+// computed together so they never overlap. There is no title bar in portrait, so
+// the menu button lives at the right end of the control row; the four game keys
+// are centred in the width that remains to its left. Both render_touch_button_rects
+// (game keys) and render_menu_button_rect (menu key) read from here, keeping the
+// draw code and input hit-testing in lockstep. Pass NULL for either output.
+static void bottom_row_layout(Rectangle game[BTN_COUNT], Rectangle* menu) {
     int w = GetScreenWidth(), h = GetScreenHeight();
     int bar_h = control_bar_h(h);
     int bar_y = h - bar_h;
 
-    // A centered row of square buttons, smaller than the bar so they read as
-    // compact keys rather than filling the whole strip.
+    // Reserve a right-hand slot for the menu key; centre the game keys in the rest.
+    int msize    = (int)(bar_h * 0.56f);   // a touch smaller than the game keys
+    int medge    = w / 30;                 // menu key's right margin
+    int reserved = msize + 2 * medge;
+    int usable   = w - reserved;
+
     int bsize = (int)(bar_h * 0.72f);
-    int gap  = w / 26;
-    int side = w / 20;                    // keep the row off the screen edges
-    int max_total = w - 2 * side;
+    int gap   = w / 26;
+    int side  = w / 20;                    // keep the row off the screen edges
+    int max_total = usable - 2 * side;
     int total = BTN_COUNT * bsize + (BTN_COUNT - 1) * gap;
     if (total > max_total) {
         bsize = (max_total - (BTN_COUNT - 1) * gap) / BTN_COUNT;
         total = BTN_COUNT * bsize + (BTN_COUNT - 1) * gap;
     }
-    int startx = (w - total) / 2;
-    int by = bar_y + (bar_h - bsize) / 2;  // also leaves a gap below for the nav pill
-    for (int i = 0; i < BTN_COUNT; i++) {
-        rects[i] = (Rectangle){ (float)(startx + i * (bsize + gap)),
-                                (float)by, (float)bsize, (float)bsize };
+    int startx = (usable - total) / 2;
+    int by = bar_y + (bar_h - bsize) / 2;
+    if (game) {
+        for (int i = 0; i < BTN_COUNT; i++) {
+            game[i] = (Rectangle){ (float)(startx + i * (bsize + gap)),
+                                   (float)by, (float)bsize, (float)bsize };
+        }
+    }
+    if (menu) {
+        int my = bar_y + (bar_h - msize) / 2;
+        *menu = (Rectangle){ (float)(w - msize - medge), (float)my,
+                             (float)msize, (float)msize };
     }
 }
 
-// The menu/pause button sits at the right end of the top title bar.
-void render_menu_button_rect(Rectangle* out) {
-    int w = GetScreenWidth(), h = GetScreenHeight();
-    int th = title_bar_h(h);         // top bar height
-    int size = th * 4 / 5;           // square key, vertically centered in the bar
-    int pad  = (th - size) / 2;
-    *out = (Rectangle){ (float)(w - size - w / 30), (float)pad, (float)size, (float)size };
+void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
+    bottom_row_layout(rects, NULL);
 }
 
-// Draw the menu/pause button: a small rounded key with a 3-bar "menu" glyph.
+// The menu/pause button sits at the right end of the bottom control row.
+void render_menu_button_rect(Rectangle* out) {
+    bottom_row_layout(NULL, out);
+}
+
+// Draw the menu/pause button as a rounded key matching the game keys' styling,
+// with a 3-bar "menu" glyph. Brightens while a finger rests on it.
 static void draw_menu_button(void) {
     Rectangle r;
     render_menu_button_rect(&r);
@@ -57,12 +70,15 @@ static void draw_menu_button(void) {
     for (int t = 0; t < touches; t++) {
         if (CheckCollisionPointRec(GetTouchPosition(t), r)) { pressed = true; break; }
     }
-    gfx_rounded_rect(r, 0.30f, 8, pressed ? (Color){70, 74, 90, 255} : (Color){40, 42, 52, 255});
-    Color ic = pressed ? (Color){220, 224, 232, 255} : (Color){170, 176, 190, 255};
-    int bx = (int)(r.x + r.width * 0.26f), bw = (int)(r.width * 0.48f);
+    Color fill = pressed ? (Color){44, 47, 58, 255} : (Color){24, 26, 32, 255};
+    Color edge = pressed ? (Color){90, 96, 112, 255} : (Color){48, 52, 62, 255};
+    Color ic   = pressed ? (Color){215, 219, 228, 255} : (Color){150, 156, 170, 255};
+    gfx_rounded_rect(r, 0.30f, 10, fill);
+    gfx_rounded_rect_lines(r, 0.30f, 10, 1.5f, edge);
+    int bx = (int)(r.x + r.width * 0.28f), bw = (int)(r.width * 0.44f);
     int bh = (int)(r.height * 0.09f) + 1;
     for (int i = 0; i < 3; i++) {
-        gfx_rect(bx, (int)(r.y + r.height * (0.30f + 0.20f * i)), bw, bh, ic);
+        gfx_rect(bx, (int)(r.y + r.height * (0.32f + 0.18f * i)), bw, bh, ic);
     }
 }
 
@@ -119,14 +135,14 @@ static void draw_game_portrait(const Game* game) {
     gfx_clear(BLACK);
 
     int outer    = w / 30;               // minimal screen-edge margin
-    int title_h  = title_bar_h(h);       // single compact top bar
+    int top_pad  = h / 40;               // small top margin (no title bar)
     int bar_h    = control_bar_h(h);     // bottom control bar (always in portrait)
     int bottom_m = h / 45;
-    int avail_h  = h - title_h - bar_h - bottom_m;
+    int avail_h  = h - top_pad - bar_h - bottom_m;
 
     // Largest square cell that fits 10 wide x 20 tall in the reclaimed height.
-    // The field is height-limited on phones, so it leaves side gutters we fill
-    // with the HUD rather than stacking a HUD band that would steal that height.
+    // With no title bar the field runs from the top margin down to the control
+    // bar; it's height-limited on phones, so it leaves side gutters for the HUD.
     int cell_w = (w - 2 * outer) / PLAYFIELD_WIDTH;
     int cell_h = avail_h / PLAYFIELD_HEIGHT;
     int cell   = (cell_w < cell_h) ? cell_w : cell_h;
@@ -134,43 +150,37 @@ static void draw_game_portrait(const Game* game) {
     int field_w = cell * PLAYFIELD_WIDTH;
     int field_h = cell * PLAYFIELD_HEIGHT;
     int play_x  = (w - field_w) / 2;
-    int play_y  = title_h + (avail_h - field_h) / 2;
+    int play_y  = top_pad + (avail_h - field_h) / 2;
     int gutter  = play_x;                // symmetric side gutter width (== play_x)
 
-    // Top bar: title at the left, SCORE right-aligned before the menu button.
-    int title_fs = title_h * 2 / 5;
-    int bar_lab  = title_h / 5;
-    gfx_rect(0, 0, w, title_h, DARKGRAY);
-    gfx_text("OPENBLOCKS", outer, (title_h - title_fs) / 2, title_fs, WHITE);
-    Rectangle mb; render_menu_button_rect(&mb);
-    const char* score = TextFormat("%06u", (unsigned int)game->score);
-    int score_w = gfx_measure_text(score, title_fs);
-    int score_x = (int)mb.x - w / 30 - score_w;
-    gfx_text("SCORE", score_x, (title_h - title_fs) / 2 - bar_lab, bar_lab,
-             (Color){150, 156, 170, 255});
-    gfx_text(score, score_x, (title_h - title_fs) / 2 + bar_lab / 2, title_fs, YELLOW);
-    draw_menu_button();
-
-    // Side-gutter HUD rails, top-aligned with and hugging the playfield. LINES /
-    // LEVEL stack in the left rail; the NEXT preview anchors the right rail.
-    // SCORE stays in the top bar (six digits need more width than a rail offers).
+    // Side-gutter HUD rails, top-aligned with and hugging the playfield. SCORE /
+    // LINES / LEVEL stack in the left rail; the NEXT preview anchors the right.
     // The rail *content* is capped at cell*4 so it never balloons when the window
     // is wide/landscape (portrait renderer on a sideways tablet or Controls: On):
     // there the field stays height-limited and the raw gutter grows without bound.
     int railw = gutter;
     if (railw > cell * 4) railw = cell * 4;
-    int rail_pad  = railw / 8 + 2;
-    int label_fs  = railw / 6;
-    int value_fs  = railw * 5 / 16;
-    int lx        = play_x - railw + rail_pad;       // left rail hugs field's left
-    int y        = play_y;
+    int rail_pad = railw / 8 + 2;
+    int budget   = railw - 2 * rail_pad;             // usable content width per rail
+    int label_fs = railw / 6;
+    int value_fs = railw * 5 / 16;
+    int lx       = play_x - railw + rail_pad;        // left rail hugs field's left
+
+    // SCORE first: six digits, so shrink its font to fit the (narrow) rail.
+    const char* score = TextFormat("%06u", (unsigned int)game->score);
+    int score_fs = value_fs;
+    while (score_fs > 8 && gfx_measure_text(score, score_fs) > budget) score_fs--;
+    gfx_text("SCORE", lx, play_y, label_fs, (Color){150, 156, 170, 255});
+    gfx_text(score, lx, play_y + label_fs + label_fs / 3, score_fs, YELLOW);
+    int y = play_y + label_fs + label_fs / 3 + score_fs + value_fs / 2;
     y = draw_gutter_stat("LINES", TextFormat("%d", game->lines_cleared),
                          lx, y, label_fs, value_fs);
     draw_gutter_stat("LEVEL", TextFormat("%d", game->level),
                      lx, y + value_fs / 2, label_fs, value_fs);
 
-    // NEXT preview (square mini-cells) in the right rail, hugging the field.
-    int ncell  = (railw - 2 * rail_pad) / 4;
+    // NEXT preview (square mini-cells) in the right rail, hugging the field. With
+    // the menu button now on the bottom row, NEXT can sit at the field top.
+    int ncell  = budget / 4;
     int nbox_w = ncell * 4, nbox_h = ncell * 4;
     int rx     = play_x + field_w + rail_pad;        // right rail hugs field's right
     int nbox_y = play_y + label_fs + label_fs / 3;
@@ -183,6 +193,7 @@ static void draw_game_portrait(const Game* game) {
     draw_playfield(game, play_x, play_y, cell);
 
     draw_touch_buttons();
+    draw_menu_button();
 }
 
 static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {
