@@ -188,7 +188,7 @@ ANDROID_KEYSTORE ?= build/debug.keystore
 # bundled. No Gradle: javac -> d8, both from the JDK + SDK build-tools already on
 # the CI runner. The C game is unchanged; the activity just sets up immersive
 # mode and NativeActivity loads libopenblocks.so as before.
-ANDROID_JAVA_SRC := android/java/com/openblocks/game/OpenblocksActivity.java
+ANDROID_JAVA_SRC := android/java/com/danheskett/openblocks/OpenblocksActivity.java
 ANDROID_DEX      := build/dex/classes.dex
 JAVAC            ?= javac
 
@@ -214,7 +214,7 @@ $(ANDROID_DEX): $(ANDROID_JAVA_SRC)
 	$(JAVAC) -source 1.8 -target 1.8 -Xlint:-options \
 	    -classpath $(ANDROID_JAR) -d build/java-classes $(ANDROID_JAVA_SRC)
 	$(ANDROID_SDK_BT)/d8 --min-api $(ANDROID_API) --lib $(ANDROID_JAR) \
-	    --output build/dex build/java-classes/com/openblocks/game/*.class
+	    --output build/dex build/java-classes/com/danheskett/openblocks/*.class
 
 # Throwaway debug keystore for signing. Real distributable builds sign with a
 # keystore supplied from a CI secret instead.

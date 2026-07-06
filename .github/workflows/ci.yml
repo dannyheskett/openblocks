@@ -141,7 +141,7 @@ jobs:
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl install "$UDID" build/ios-sim/Openblocks.app
-          xcrun simctl launch "$UDID" com.openblocks.game
+          xcrun simctl launch "$UDID" com.danheskett.openblocks
           sleep 4
           xcrun simctl io "$UDID" screenshot ios-shot.png
       - name: Upload Simulator screenshot
