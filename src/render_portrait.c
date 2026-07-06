@@ -142,8 +142,12 @@ static void draw_game_portrait(const Game* game) {
 
     // Largest square cell that fits 10 wide x 20 tall in the reclaimed height.
     // With no title bar the field runs from the top margin down to the control
-    // bar; it's height-limited on phones, so it leaves side gutters for the HUD.
-    int cell_w = (w - 2 * outer) / PLAYFIELD_WIDTH;
+    // bar. When the field comes out width-limited (tall 20:9 phones), reserve a
+    // real HUD rail on each side — with only the w/30 edge margin left over, the
+    // SCORE/NEXT rails collapse into unreadable slivers against the field border.
+    int rail_min = w / 8;
+    int side_m   = (outer > rail_min) ? outer : rail_min;
+    int cell_w = (w - 2 * side_m) / PLAYFIELD_WIDTH;
     int cell_h = avail_h / PLAYFIELD_HEIGHT;
     int cell   = (cell_w < cell_h) ? cell_w : cell_h;
     if (cell < 1) cell = 1;
