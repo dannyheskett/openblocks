@@ -151,23 +151,28 @@ static void draw_game_portrait(const Game* game) {
     gfx_text(score, score_x, (title_h - title_fs) / 2 + bar_lab / 2, title_fs, YELLOW);
     draw_menu_button();
 
-    // Side-gutter HUD rails, top-aligned with the playfield. LINES / LEVEL stack
-    // in the left rail; the NEXT preview anchors the right rail. SCORE stays in
-    // the top bar because its six digits need more width than a gutter offers.
-    int rail_pad  = gutter / 8 + 2;
-    int label_fs  = gutter / 6;
-    int value_fs  = gutter * 5 / 16;
-    int lx        = rail_pad;                        // left rail x
+    // Side-gutter HUD rails, top-aligned with and hugging the playfield. LINES /
+    // LEVEL stack in the left rail; the NEXT preview anchors the right rail.
+    // SCORE stays in the top bar (six digits need more width than a rail offers).
+    // The rail *content* is capped at cell*4 so it never balloons when the window
+    // is wide/landscape (portrait renderer on a sideways tablet or Controls: On):
+    // there the field stays height-limited and the raw gutter grows without bound.
+    int railw = gutter;
+    if (railw > cell * 4) railw = cell * 4;
+    int rail_pad  = railw / 8 + 2;
+    int label_fs  = railw / 6;
+    int value_fs  = railw * 5 / 16;
+    int lx        = play_x - railw + rail_pad;       // left rail hugs field's left
     int y        = play_y;
     y = draw_gutter_stat("LINES", TextFormat("%d", game->lines_cleared),
                          lx, y, label_fs, value_fs);
     draw_gutter_stat("LEVEL", TextFormat("%d", game->level),
                      lx, y + value_fs / 2, label_fs, value_fs);
 
-    // NEXT preview (square mini-cells) in the right rail.
-    int ncell  = (gutter - 2 * rail_pad) / 4;
+    // NEXT preview (square mini-cells) in the right rail, hugging the field.
+    int ncell  = (railw - 2 * rail_pad) / 4;
     int nbox_w = ncell * 4, nbox_h = ncell * 4;
-    int rx     = w - gutter + (gutter - nbox_w) / 2; // centered in right rail
+    int rx     = play_x + field_w + rail_pad;        // right rail hugs field's right
     int nbox_y = play_y + label_fs + label_fs / 3;
     gfx_text("NEXT", rx, play_y, label_fs, (Color){150, 156, 170, 255});
     gfx_rect_lines(rx, nbox_y, nbox_w, nbox_h, LIGHTGRAY);
