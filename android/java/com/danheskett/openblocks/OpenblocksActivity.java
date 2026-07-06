@@ -1,4 +1,4 @@
-package com.openblocks.game;
+package com.danheskett.openblocks;
 
 import android.app.NativeActivity;
 import android.os.Build;

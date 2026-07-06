@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>openblocks</string>
     <key>CFBundleIdentifier</key>
-    <string>com.openblocks.game</string>
+    <string>com.danheskett.openblocks</string>
     <key>CFBundleExecutable</key>
     <string>Openblocks</string>
     <key>CFBundlePackageType</key>
