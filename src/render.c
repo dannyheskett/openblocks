@@ -210,8 +210,16 @@ void render_init(void) {
     // GetScreenWidth/Height then track it so the layout re-fits on resize/rotate.
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
 #endif
+#if defined(PLATFORM_ANDROID)
+    // Request 0x0: raylib's Android backend then renders at the device's native
+    // resolution. Any fixed size here gets aspect-letterboxed into the display
+    // (with GetScreenWidth/Height reporting the request, not the device), which
+    // shrank the whole game into a 640x480 box in the middle of the screen.
+    InitWindow(0, 0, "openblocks");
+#else
     // Fixed 640x480 window (not resizable); Alt+Enter toggles fullscreen.
     InitWindow(BASE_WIDTH, BASE_HEIGHT, "openblocks");
+#endif
     SetExitKey(KEY_NULL); // Escape is handled by the game, not the window
     SetTargetFPS(60);
 

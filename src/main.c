@@ -63,8 +63,9 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     // pointer type, but a 2-in-1 or a preference may want the other).
     labels[n] = render_use_portrait() ? "Controls: On" : "Controls: Off"; actions[n++] = ACT_CONTROLS;
     // A browser tab can't be closed from code, so no Exit on web.
-#elif !defined(PLATFORM_IOS)
-    // iOS apps don't self-terminate (Apple guidelines), so no Exit there either.
+#elif !defined(PLATFORM_IOS) && !defined(PLATFORM_ANDROID)
+    // Mobile apps don't self-terminate (the OS owns the lifecycle: home gesture /
+    // back button on Android, Apple guidelines on iOS), so no Exit on either.
     labels[n] = "Exit"; actions[n++] = ACT_EXIT;
 #endif
     return n;
