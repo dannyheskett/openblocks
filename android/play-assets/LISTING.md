@@ -22,36 +22,33 @@ openblocks
 ## Short description (≤80 chars)
 
 ```
-A clean, classic falling-block puzzle. Free, no ads, no tracking.
+Classic falling-block puzzle. Free, open source, no ads, no tracking.
 ```
 
 ## Full description (≤4000 chars)
 
 ```
-openblocks is a falling-block puzzle done the classic way. Rotate and drop the
-pieces, complete horizontal lines to clear them, and keep the stack from
-reaching the top. The rules, scoring, levels, and gravity all follow the
-original that made the genre famous — if you've played that, this will feel
-instantly familiar.
+Stack falling blocks, clear lines, and chase higher levels in a clean, classic block puzzle — with none of the junk that clutters this genre.
 
-Built for one-handed play:
-• Large on-screen buttons — move left/right, rotate, and drop
-• Tap the playfield to rotate
-• Tap Drop for a hard drop, hold it for a soft drop
-• The layout adapts to any phone or tablet screen
+No ads. No tracking. No accounts. No in-app purchases. openblocks requests zero permissions and never touches the network. It's just the game.
 
-Honest and lightweight:
-• Completely free — no ads, ever
-• No accounts, no sign-in, no internet permission
-• Collects no data and shares nothing
-• Tiny download and works fully offline
-• Written in C — fast and light on battery
+PURE CLASSIC GAMEPLAY
+• Clear lines to score and level up, with gravity that ramps up as you go
+• Plan ahead with the next-piece preview
+• Soft drop for control, hard drop for speed
+• Wall kicks for smooth, forgiving rotation
+• Pause anytime and pick up where you left off
 
-openblocks is a personal project: a from-scratch reimplementation built to get
-the feel of a classic exactly right. It's open source — you can read the code,
-build it yourself, or play it in your browser at https://danheskett.com.
+BUILT RIGHT
+• Large on-screen buttons tuned for one-handed play
+• Crisp, minimal visuals that stay out of your way
+• Fully offline — perfect for flights, commutes, anywhere
+• Tiny download, easy on your battery
 
-Just the game. Drop some blocks.
+FREE AND OPEN SOURCE
+openblocks is open source. Read the code, report a bug, or build it yourself: https://github.com/dannyheskett/openblocks
+
+No dark patterns, no "energy" timers, no paywalled pieces. Just the timeless falling-block puzzle, done properly.
 ```
 
 ## Categorization (Store settings)
@@ -70,12 +67,11 @@ Just the game. Drop some blocks.
 - Data shared: **None**
 - App has no `INTERNET` permission (verify in the manifest) → "no data
   transmitted off the device" is truthful.
-- Privacy policy URL: **TODO** — host the one-pager (see `PRIVACY.md`, pending)
-  at e.g. https://danheskett.com/openblocks-privacy
+- Privacy policy URL: **https://danheskett.com/app/privacy-policy/** (live)
 
-## Screenshots — TODO
+## Screenshots
 
-Capture 2–8 portrait shots (menu, gameplay, next-piece, pause/game-over) at a
-phone resolution. The web build's portrait renderer is pixel-identical to the
-Android layout, so these can be captured from it or from a Device Farm run.
-```
+Live on the listing (pushed via the Play API): `screenshots/phone/` (4x
+1080x1920) in the phone slot, `screenshots/tablet/` (4x 2160x3840) in both the
+7-inch and 10-inch tablet slots. Captured from the CI web build's portrait
+renderer (pixel-identical to Android) in a headless browser.
