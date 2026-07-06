@@ -129,28 +129,11 @@ static int draw_gutter_stat(const char* label, const char* value, int x,
     return y + label_fs + label_fs / 3 + value_fs;
 }
 
-static void draw_game_portrait(const Game* game) {
+// Side-rail gameplay layout: HUD in the side gutters. Right for screens where
+// the field is HEIGHT-limited (squarer phones like an SE, tablets): the gutters
+// are naturally wide there, so the rails get room without costing field size.
+static void draw_game_rails(const Game* game, int cell, int top_pad, int avail_h) {
     int w = GetScreenWidth();
-    int h = GetScreenHeight();
-    gfx_clear(BLACK);
-
-    int outer    = w / 30;               // minimal screen-edge margin
-    int top_pad  = h / 40;               // small top margin (no title bar)
-    int bar_h    = control_bar_h(h);     // bottom control bar (always in portrait)
-    int bottom_m = h / 45;
-    int avail_h  = h - top_pad - bar_h - bottom_m;
-
-    // Largest square cell that fits 10 wide x 20 tall in the reclaimed height.
-    // With no title bar the field runs from the top margin down to the control
-    // bar. When the field comes out width-limited (tall 20:9 phones), reserve a
-    // real HUD rail on each side — with only the w/30 edge margin left over, the
-    // SCORE/NEXT rails collapse into unreadable slivers against the field border.
-    int rail_min = w / 8;
-    int side_m   = (outer > rail_min) ? outer : rail_min;
-    int cell_w = (w - 2 * side_m) / PLAYFIELD_WIDTH;
-    int cell_h = avail_h / PLAYFIELD_HEIGHT;
-    int cell   = (cell_w < cell_h) ? cell_w : cell_h;
-    if (cell < 1) cell = 1;
     int field_w = cell * PLAYFIELD_WIDTH;
     int field_h = cell * PLAYFIELD_HEIGHT;
     int play_x  = (w - field_w) / 2;
@@ -195,6 +178,97 @@ static void draw_game_portrait(const Game* game) {
     draw_piece_centered(game->next_piece.type, 0, rx, nbox_y, nbox_w, nbox_h, ncell, next_color);
 
     draw_playfield(game, play_x, play_y, cell);
+}
+
+// Top-band gameplay layout: one HUD row (SCORE / LINES / LEVEL columns + the
+// NEXT preview) sitting on the field's top edge. Right for tall 20:9 phones,
+// where the field is WIDTH-limited and the spare height makes the band nearly
+// free — the field gets full width and the HUD is sized off screen height, so
+// it stays readable no matter how skinny the side margins are.
+static void draw_game_band(const Game* game, int cell, int top_pad, int avail_h,
+                           int hud_h, int hud_gap) {
+    int w = GetScreenWidth();
+    int field_w = cell * PLAYFIELD_WIDTH;
+    int field_h = cell * PLAYFIELD_HEIGHT;
+    int play_x  = (w - field_w) / 2;
+
+    // Centre the band+field block in the available height; band hugs the field.
+    int block_h = hud_h + hud_gap + field_h;
+    int band_y  = top_pad + (avail_h - block_h) / 2;
+    int play_y  = band_y + hud_h + hud_gap;
+
+    int label_fs = hud_h * 21 / 100;
+    int value_fs = hud_h * 38 / 100;
+
+    // NEXT column right-aligned to the field edge: label over a square preview
+    // box that fills the band height remaining under the label.
+    int nbox   = hud_h - (label_fs + label_fs / 3);
+    int ncell  = nbox / 4;
+    nbox = ncell * 4;
+    int nx     = play_x + field_w - nbox;
+    int nbox_y = band_y + label_fs + label_fs / 3;
+    gfx_text("NEXT", nx, band_y, label_fs, (Color){150, 156, 170, 255});
+    gfx_rect_lines(nx, nbox_y, nbox, nbox, LIGHTGRAY);
+    gfx_rect(nx + 1, nbox_y + 1, nbox - 2, nbox - 2, BOARD_BG);
+    Color next_color = color_from_piece(game->next_piece.type, game->level);
+    draw_piece_centered(game->next_piece.type, 0, nx, nbox_y, nbox, nbox, ncell, next_color);
+
+    // Stat columns left-aligned to the field edge; SCORE gets the wide first
+    // column (six digits), LINES / LEVEL follow at fixed fractions of the field.
+    int sx = play_x;
+    int lines_x = play_x + field_w * 42 / 100;
+    int level_x = play_x + field_w * 65 / 100;
+    const char* score = TextFormat("%06u", (unsigned int)game->score);
+    int score_fs = value_fs;
+    while (score_fs > 8 &&
+           gfx_measure_text(score, score_fs) > lines_x - sx - value_fs / 2) score_fs--;
+    gfx_text("SCORE", sx, band_y, label_fs, (Color){150, 156, 170, 255});
+    gfx_text(score, sx, band_y + label_fs + label_fs / 3, score_fs, YELLOW);
+    draw_gutter_stat("LINES", TextFormat("%d", game->lines_cleared),
+                     lines_x, band_y, label_fs, value_fs);
+    draw_gutter_stat("LEVEL", TextFormat("%d", game->level),
+                     level_x, band_y, label_fs, value_fs);
+
+    draw_playfield(game, play_x, play_y, cell);
+}
+
+static void draw_game_portrait(const Game* game) {
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
+    gfx_clear(BLACK);
+
+    int outer    = w / 30;               // minimal screen-edge margin
+    int top_pad  = h / 40;               // small top margin (no title bar)
+    int bar_h    = control_bar_h(h);     // bottom control bar (always in portrait)
+    int bottom_m = h / 45;
+    int avail_h  = h - top_pad - bar_h - bottom_m;
+    int cell_h   = avail_h / PLAYFIELD_HEIGHT;
+
+    // Two layouts, picked per screen shape by which yields the bigger field:
+    //  - side rails need real gutter width to be readable, so their candidate
+    //    cell reserves w/8 per side;
+    //  - the top band needs hud_h of height, but only the w/30 edge margin.
+    // On tall 20:9 phones the band wins (spare height, scarce width); on squarer
+    // screens (SE-class phones, tablets) the rails win. The band gets a small
+    // preference (7%) because readable HUD beats a sliver of extra cell size.
+    int rail_min  = w / 8;
+    int side_m    = (outer > rail_min) ? outer : rail_min;
+    int cw_side   = (w - 2 * side_m) / PLAYFIELD_WIDTH;
+    int cell_side = (cw_side < cell_h) ? cw_side : cell_h;
+
+    int hud_h   = h / 11;
+    int hud_gap = h / 70;
+    int cw_band = (w - 2 * outer) / PLAYFIELD_WIDTH;
+    int ch_band = (avail_h - hud_h - hud_gap) / PLAYFIELD_HEIGHT;
+    int cell_band = (cw_band < ch_band) ? cw_band : ch_band;
+
+    if (cell_band * 100 >= cell_side * 93) {
+        if (cell_band < 1) cell_band = 1;
+        draw_game_band(game, cell_band, top_pad, avail_h, hud_h, hud_gap);
+    } else {
+        if (cell_side < 1) cell_side = 1;
+        draw_game_rails(game, cell_side, top_pad, avail_h);
+    }
 
     draw_touch_buttons();
     draw_menu_button();
