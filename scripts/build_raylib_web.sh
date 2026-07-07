@@ -21,6 +21,19 @@ if [ ! -d "$RAYLIB_SRC_DIR" ]; then
         https://github.com/raysan5/raylib "$RAYLIB_SRC_DIR"
 fi
 
+# Fix raylib's web touchend handling: upstream removes only ONE lifted touch
+# per touchend event, but lifting several fingers at once (a two-finger tap)
+# arrives as a single event with multiple changed touches, leaving the touch
+# count stuck above zero with no further events coming. Idempotent: skipped
+# when the patch is already applied (pre-existing local clone).
+PATCH="$(cd "$(dirname "$0")" && pwd)/raylib-web-touchend.patch"
+if git -C "$RAYLIB_SRC_DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+    echo "[build_raylib_web] touchend patch already applied"
+else
+    git -C "$RAYLIB_SRC_DIR" apply "$PATCH"
+    echo "[build_raylib_web] applied touchend patch"
+fi
+
 # Static archive for the web target. GLES2 is the WebGL-compatible backend.
 make -C "$RAYLIB_SRC_DIR/src" clean
 make -C "$RAYLIB_SRC_DIR/src" \
