@@ -8,7 +8,74 @@
 
 // Height of the bottom on-screen control bar. Slimmed from h/7 so the playfield
 // reclaims the height; buttons stay ~0.72*bar (comfortably above the 44pt min).
-static int control_bar_h(int h) { return h / 8; }
+// Zero when the button row is hidden (gesture controls, the default) — the
+// playfield takes the height instead.
+static int control_bar_h(int h) {
+    return render_touch_buttons_shown() ? h / 8 : 0;
+}
+
+// --- Shared portrait layout -------------------------------------------------
+// One HUD band above the field: SCORE / LINES / LEVEL columns (uniform font,
+// labels over values) with the NEXT preview box right-aligned. In gesture mode
+// a pause key sits in the screen's top-right corner above the band (the spot
+// mobile players expect); in button mode the pause key lives in the bottom row.
+typedef struct {
+    int fs, hud_h, band_y;       // uniform font size; band height and top y
+    int cell, px, py, field_w;   // playfield geometry
+    int nbox;                    // NEXT box side (== hud_h, snapped to 4 cells)
+    Rectangle pause;             // pause key (gesture mode; unused with buttons)
+} BandLayout;
+
+static void band_layout(BandLayout* L) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int outer    = w / 30;
+    int top_pad  = h / 40;
+    int bar_h    = control_bar_h(h);
+    int bottom_m = h / 45;
+    int avail_h  = h - top_pad - bar_h - bottom_m;
+    int hud_gap  = h / 70;
+    bool gesture = !render_touch_buttons_shown();
+
+    // Pause key row (gesture mode only): a comfortable tap target even on small
+    // screens, tucked above the band's right edge.
+    int pause_side = h / 16;
+    int pause_gap  = h / 100;
+    int pause_blk  = gesture ? pause_side + pause_gap : 0;
+
+    // Uniform font: start at the approved size, shrink only if the three stat
+    // columns plus the NEXT box can't fit across the field width.
+    int fs = h / 38;
+    int cell, field_w, nbox;
+    for (;; fs--) {
+        int hud_h = 2 * fs + fs / 3;
+        int cw = (w - 2 * outer) / PLAYFIELD_WIDTH;
+        int ch = (avail_h - hud_h - hud_gap - pause_blk) / PLAYFIELD_HEIGHT;
+        cell = (cw < ch) ? cw : ch;
+        if (cell < 1) cell = 1;
+        field_w = cell * PLAYFIELD_WIDTH;
+        nbox = hud_h / 4 * 4;
+        int cols = gfx_measure_text("SCORE", fs) + gfx_measure_text("LINES", fs) +
+                   gfx_measure_text("LEVEL", fs);
+        if (fs <= 8 || cols + nbox + 3 * (fs / 2) <= field_w) { L->fs = fs; break; }
+    }
+    L->hud_h  = 2 * L->fs + L->fs / 3;
+    L->cell   = cell;
+    L->field_w = field_w;
+    L->nbox   = nbox;
+    L->px     = (w - field_w) / 2;
+    int block = pause_blk + L->hud_h + hud_gap + cell * PLAYFIELD_HEIGHT;
+    int top   = top_pad + (avail_h - block) / 2;
+    L->band_y = top + pause_blk;
+    L->py     = L->band_y + L->hud_h + hud_gap;
+    L->pause  = (Rectangle){ (float)(L->px + field_w - pause_side), (float)top,
+                             (float)pause_side, (float)pause_side };
+}
+
+int render_portrait_cell(void) {
+    BandLayout L;
+    band_layout(&L);
+    return L.cell;
+}
 
 // Shared bottom-row geometry: the four game keys plus the menu/pause button,
 // computed together so they never overlap. There is no title bar in portrait, so
@@ -55,9 +122,16 @@ void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
     bottom_row_layout(rects, NULL);
 }
 
-// The menu/pause button sits at the right end of the bottom control row.
+// The menu/pause button: right end of the bottom control row when the button
+// row is shown, else the top-right corner key above the HUD band.
 void render_menu_button_rect(Rectangle* out) {
-    bottom_row_layout(NULL, out);
+    if (render_touch_buttons_shown()) {
+        bottom_row_layout(NULL, out);
+    } else {
+        BandLayout L;
+        band_layout(&L);
+        *out = L.pause;
+    }
 }
 
 // Draw the menu/pause button as a rounded key matching the game keys' styling,
@@ -129,151 +203,42 @@ static int draw_gutter_stat(const char* label, const char* value, int x,
     return y + label_fs + label_fs / 3 + value_fs;
 }
 
-// Side-rail gameplay layout: HUD in the side gutters. Right for screens where
-// the field is HEIGHT-limited (squarer phones like an SE, tablets): the gutters
-// are naturally wide there, so the rails get room without costing field size.
-static void draw_game_rails(const Game* game, int cell, int top_pad, int avail_h) {
-    int w = GetScreenWidth();
-    int field_w = cell * PLAYFIELD_WIDTH;
-    int field_h = cell * PLAYFIELD_HEIGHT;
-    int play_x  = (w - field_w) / 2;
-    int play_y  = top_pad + (avail_h - field_h) / 2;
-    int gutter  = play_x;                // symmetric side gutter width (== play_x)
-
-    // Side-gutter HUD rails, top-aligned with and hugging the playfield. SCORE /
-    // LINES / LEVEL stack in the left rail; the NEXT preview anchors the right.
-    // The rail *content* is capped at cell*4 so it never balloons when the window
-    // is wide/landscape (portrait renderer on a sideways tablet or Controls: On):
-    // there the field stays height-limited and the raw gutter grows without bound.
-    int railw = gutter;
-    if (railw > cell * 4) railw = cell * 4;
-    int rail_pad = railw / 8 + 2;
-    int budget   = railw - 2 * rail_pad;             // usable content width per rail
-    int label_fs = railw / 6;
-    int value_fs = railw * 5 / 16;
-    int lx       = play_x - railw + rail_pad;        // left rail hugs field's left
-
-    // SCORE first: six digits, so shrink its font to fit the (narrow) rail.
-    const char* score = TextFormat("%06u", (unsigned int)game->score);
-    int score_fs = value_fs;
-    while (score_fs > 8 && gfx_measure_text(score, score_fs) > budget) score_fs--;
-    gfx_text("SCORE", lx, play_y, label_fs, (Color){150, 156, 170, 255});
-    gfx_text(score, lx, play_y + label_fs + label_fs / 3, score_fs, YELLOW);
-    int y = play_y + label_fs + label_fs / 3 + score_fs + value_fs / 2;
-    y = draw_gutter_stat("LINES", TextFormat("%d", game->lines_cleared),
-                         lx, y, label_fs, value_fs);
-    draw_gutter_stat("LEVEL", TextFormat("%d", game->level),
-                     lx, y + value_fs / 2, label_fs, value_fs);
-
-    // NEXT preview (square mini-cells) in the right rail, hugging the field. With
-    // the menu button now on the bottom row, NEXT can sit at the field top.
-    int ncell  = budget / 4;
-    int nbox_w = ncell * 4, nbox_h = ncell * 4;
-    int rx     = play_x + field_w + rail_pad;        // right rail hugs field's right
-    int nbox_y = play_y + label_fs + label_fs / 3;
-    gfx_text("NEXT", rx, play_y, label_fs, (Color){150, 156, 170, 255});
-    gfx_rect_lines(rx, nbox_y, nbox_w, nbox_h, LIGHTGRAY);
-    gfx_rect(rx + 1, nbox_y + 1, nbox_w - 2, nbox_h - 2, BOARD_BG);
-    Color next_color = color_from_piece(game->next_piece.type, game->level);
-    draw_piece_centered(game->next_piece.type, 0, rx, nbox_y, nbox_w, nbox_h, ncell, next_color);
-
-    draw_playfield(game, play_x, play_y, cell);
-}
-
-// Top-band gameplay layout: one HUD row (SCORE / LINES / LEVEL columns + the
-// NEXT preview) sitting on the field's top edge. Right for tall 20:9 phones,
-// where the field is WIDTH-limited and the spare height makes the band nearly
-// free — the field gets full width and the HUD is sized off screen height, so
-// it stays readable no matter how skinny the side margins are.
-static void draw_game_band(const Game* game, int cell, int top_pad, int avail_h,
-                           int hud_h, int hud_gap) {
-    int w = GetScreenWidth();
-    int field_w = cell * PLAYFIELD_WIDTH;
-    int field_h = cell * PLAYFIELD_HEIGHT;
-    int play_x  = (w - field_w) / 2;
-
-    // Centre the band+field block in the available height; band hugs the field.
-    int block_h = hud_h + hud_gap + field_h;
-    int band_y  = top_pad + (avail_h - block_h) / 2;
-    int play_y  = band_y + hud_h + hud_gap;
-
-    int label_fs = hud_h * 21 / 100;
-    int value_fs = hud_h * 38 / 100;
-
-    // NEXT column right-aligned to the field edge: label over a square preview
-    // box that fills the band height remaining under the label.
-    int nbox   = hud_h - (label_fs + label_fs / 3);
-    int ncell  = nbox / 4;
-    nbox = ncell * 4;
-    int nx     = play_x + field_w - nbox;
-    int nbox_y = band_y + label_fs + label_fs / 3;
-    // Right-align the label with the box so it can't run into the LEVEL column.
-    int nlab_w = gfx_measure_text("NEXT", label_fs);
-    gfx_text("NEXT", nx + nbox - nlab_w, band_y, label_fs, (Color){150, 156, 170, 255});
-    gfx_rect_lines(nx, nbox_y, nbox, nbox, LIGHTGRAY);
-    gfx_rect(nx + 1, nbox_y + 1, nbox - 2, nbox - 2, BOARD_BG);
-    Color next_color = color_from_piece(game->next_piece.type, game->level);
-    draw_piece_centered(game->next_piece.type, 0, nx, nbox_y, nbox, nbox, ncell, next_color);
-
-    // Stat columns left-aligned to the field edge; SCORE gets the wide first
-    // column (six digits), LINES / LEVEL follow at fixed fractions of the field.
-    int sx = play_x;
-    int lines_x = play_x + field_w * 40 / 100;
-    int level_x = play_x + field_w * 61 / 100;
-    const char* score = TextFormat("%06u", (unsigned int)game->score);
-    int score_fs = value_fs;
-    while (score_fs > 8 &&
-           gfx_measure_text(score, score_fs) > lines_x - sx - value_fs / 2) score_fs--;
-    gfx_text("SCORE", sx, band_y, label_fs, (Color){150, 156, 170, 255});
-    gfx_text(score, sx, band_y + label_fs + label_fs / 3, score_fs, YELLOW);
-    draw_gutter_stat("LINES", TextFormat("%d", game->lines_cleared),
-                     lines_x, band_y, label_fs, value_fs);
-    draw_gutter_stat("LEVEL", TextFormat("%d", game->level),
-                     level_x, band_y, label_fs, value_fs);
-
-    draw_playfield(game, play_x, play_y, cell);
-}
-
 static void draw_game_portrait(const Game* game) {
-    int w = GetScreenWidth();
-    int h = GetScreenHeight();
     gfx_clear(BLACK);
+    BandLayout L;
+    band_layout(&L);
+    int fs = L.fs, line_gap = L.fs / 3;
+    int val_y = L.band_y + fs + line_gap;
 
-    int outer    = w / 30;               // minimal screen-edge margin
-    int top_pad  = h / 40;               // small top margin (no title bar)
-    int bar_h    = control_bar_h(h);     // bottom control bar (always in portrait)
-    int bottom_m = h / 45;
-    int avail_h  = h - top_pad - bar_h - bottom_m;
-    int cell_h   = avail_h / PLAYFIELD_HEIGHT;
+    // NEXT preview box, right-aligned to the field edge; the piece is centered
+    // in the box by its true bounds (draw_piece_centered).
+    int nx = L.px + L.field_w - L.nbox;
+    gfx_rect_lines(nx, L.band_y, L.nbox, L.nbox, LIGHTGRAY);
+    gfx_rect(nx + 1, L.band_y + 1, L.nbox - 2, L.nbox - 2, BOARD_BG);
+    Color next_color = color_from_piece(game->next_piece.type, game->level);
+    draw_piece_centered(game->next_piece.type, 0, nx, L.band_y, L.nbox, L.nbox,
+                        L.nbox / 4, next_color);
 
-    // Two layouts, picked per screen shape by which yields the bigger field:
-    //  - side rails need real gutter width to be readable, so their candidate
-    //    cell reserves w/8 per side;
-    //  - the top band needs hud_h of height, but only the w/30 edge margin.
-    // On tall 20:9 phones the band wins (spare height, scarce width); on squarer
-    // screens (SE-class phones, tablets) the rails win. The band gets a small
-    // preference (7%) because readable HUD beats a sliver of extra cell size.
-    int rail_min  = w / 8;
-    int side_m    = (outer > rail_min) ? outer : rail_min;
-    int cw_side   = (w - 2 * side_m) / PLAYFIELD_WIDTH;
-    int cell_side = (cw_side < cell_h) ? cw_side : cell_h;
+    // Stat columns (uniform font): SCORE / LINES / LEVEL, labels over values,
+    // spread evenly across the width left of the NEXT box.
+    int score_w = gfx_measure_text("SCORE", fs);
+    int lines_w = gfx_measure_text("LINES", fs);
+    int level_w = gfx_measure_text("LEVEL", fs);
+    int gap = (L.field_w - L.nbox - score_w - lines_w - level_w) / 3;
+    int x = L.px;
+    gfx_text("SCORE", x, L.band_y, fs, (Color){150, 156, 170, 255});
+    gfx_text(TextFormat("%06u", (unsigned int)game->score), x, val_y, fs, YELLOW);
+    x += score_w + gap;
+    gfx_text("LINES", x, L.band_y, fs, (Color){150, 156, 170, 255});
+    gfx_text(TextFormat("%d", game->lines_cleared), x, val_y, fs, YELLOW);
+    x += lines_w + gap;
+    gfx_text("LEVEL", x, L.band_y, fs, (Color){150, 156, 170, 255});
+    gfx_text(TextFormat("%d", game->level), x, val_y, fs, YELLOW);
 
-    int hud_h   = h / 11;
-    int hud_gap = h / 70;
-    int cw_band = (w - 2 * outer) / PLAYFIELD_WIDTH;
-    int ch_band = (avail_h - hud_h - hud_gap) / PLAYFIELD_HEIGHT;
-    int cell_band = (cw_band < ch_band) ? cw_band : ch_band;
+    draw_playfield(game, L.px, L.py, L.cell);
 
-    if (cell_band * 100 >= cell_side * 93) {
-        if (cell_band < 1) cell_band = 1;
-        draw_game_band(game, cell_band, top_pad, avail_h, hud_h, hud_gap);
-    } else {
-        if (cell_side < 1) cell_side = 1;
-        draw_game_rails(game, cell_side, top_pad, avail_h);
-    }
-
-    draw_touch_buttons();
-    draw_menu_button();
+    if (render_touch_buttons_shown()) draw_touch_buttons();
+    draw_menu_button();  // bottom row (buttons) or top-right pause key (gestures)
 }
 
 static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {

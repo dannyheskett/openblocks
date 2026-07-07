@@ -63,4 +63,13 @@ void render_menu_button_rect(Rectangle* out);
 void render_set_portrait(bool portrait);
 bool render_use_portrait(void);
 
+// On-screen button row toggle (portrait). Gestures are the primary controls;
+// the button row is opt-in from the menu. Off by default.
+void render_set_touch_buttons(bool shown);
+bool render_touch_buttons_shown(void);
+
+// Playfield cell size in pixels for the current portrait layout. The gesture
+// input layer uses it as the drag distance that moves the piece one column.
+int render_portrait_cell(void);
+
 #endif
