@@ -28,13 +28,14 @@ typedef enum {
     ACT_SOUND,
     ACT_RECORD,
     ACT_CONTROLS, // web only: toggle portrait touch layout vs desktop landscape
+    ACT_BUTTONS,  // touch portrait: toggle the on-screen button row (gestures default)
     ACT_EXIT,
 } MenuAction;
 
-// Upper bound on labels[]/actions[]: one slot per MenuAction (6). Each action
+// Upper bound on labels[]/actions[]: one slot per MenuAction (7). Each action
 // appears at most once, so build_menu can never overflow — at most 5 are shown
 // at once in practice (Resume + New + Sound + Record + Exit on desktop).
-#define MAX_MENU_ITEMS 6
+#define MAX_MENU_ITEMS 7
 
 // Map the events produced during a frame to sound effects.
 static void play_event_sounds(unsigned events) {
@@ -57,6 +58,14 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     // The mp4 recorder is a desktop-only feature (stubbed out on mobile/web), so
     // the toggle would do nothing there — omit it.
     labels[n] = recorder_active() ? "Record: On" : "Record: Off"; actions[n++] = ACT_RECORD;
+#endif
+#ifdef OB_TOUCH
+    // Touch portrait: gestures are the default controls; the on-screen button
+    // row is opt-in for players who prefer it.
+    if (render_use_portrait()) {
+        labels[n] = render_touch_buttons_shown() ? "Buttons: On" : "Buttons: Off";
+        actions[n++] = ACT_BUTTONS;
+    }
 #endif
 #if defined(PLATFORM_WEB)
     // The web build ships both renderers; let the player pick (auto-detected by
@@ -141,6 +150,10 @@ static void frame_step(void* arg) {
 #ifdef PLATFORM_WEB
                 render_set_portrait(!render_use_portrait());
 #endif
+                sound_play(SFX_MENU_SELECT);
+                break;
+            case ACT_BUTTONS:
+                render_set_touch_buttons(!render_touch_buttons_shown());
                 sound_play(SFX_MENU_SELECT);
                 break;
             case ACT_EXIT:
