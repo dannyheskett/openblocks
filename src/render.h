@@ -37,10 +37,6 @@ bool render_window_focused(void);
 // rectangles captured by the last render_menu() call (Android touch menus).
 int render_menu_hit_test(Vector2 p);
 
-// The on-screen menu/pause button rectangle (top corner of the portrait
-// renderer). render.c draws it; input.c hit-tests it to return to the menu.
-void render_menu_button_rect(Rectangle* out);
-
 // Active renderer selection. Native builds have exactly one renderer, so
 // render_use_portrait() is a compile-time constant there (true on Android, false
 // on desktop). The web build compiles both and picks at runtime:

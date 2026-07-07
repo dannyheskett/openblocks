@@ -25,10 +25,6 @@ void gfx_rect(int x, int y, int w, int h, Color color);
 void gfx_rect_lines(int x, int y, int w, int h, Color color);
 void gfx_line(int x1, int y1, int x2, int y2, Color color);
 
-void gfx_rounded_rect(Rectangle rec, float roundness, int segments, Color color);
-void gfx_rounded_rect_lines(Rectangle rec, float roundness, int segments,
-                            float line_thick, Color color);
-
 void gfx_text(const char* text, int x, int y, int font_size, Color color);
 int  gfx_measure_text(const char* text, int font_size);
 

@@ -27,10 +27,9 @@ compile only portrait; the web build compiles both and selects one at runtime.
   layout: piece statistics on the left, the playfield centered, and
   lines / score / level / next on the right.
 - **Portrait** — adaptive to the live screen size. A thin OPENBLOCKS title bar
-  is pinned to the top, a SCORE / LINES / LEVEL / NEXT band sits below it with a
-  pause key in the top-right corner, and the playfield fills the middle at the
-  largest square cell that fits, with a uniform margin on every edge. The game
-  is controlled entirely by gestures.
+  is pinned to the top, a SCORE / LINES / LEVEL / NEXT band sits below it, and
+  the playfield fills the middle at the largest square cell that fits, with a
+  uniform margin on every edge. The game is controlled entirely by gestures.
 
 The web build picks the renderer from the pointer type
 (`matchMedia('(pointer: coarse)')`): a phone or tablet gets portrait, a desktop
@@ -54,7 +53,7 @@ browser gets landscape.
 - **Drag down**: soft drop
 - **Flick down**: hard drop
 - **Tap**: rotate
-- **☰** key (top-right): return to the menu
+- **Two-finger tap**: return to the menu (the game stays resumable)
 - **Swipe up / down** + **tap**: menu navigation and select
 
 ## Building
