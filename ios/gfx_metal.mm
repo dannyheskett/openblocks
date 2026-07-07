@@ -227,51 +227,6 @@ void gfx_line(int x1, int y1, int x2, int y2, Color c) {
     tri_solid(x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny, c);
 }
 
-static float roundness_radius(Rectangle r, float roundness) {
-    float m = (r.width < r.height) ? r.width : r.height;
-    float rad = roundness * m / 2.0f;
-    if (rad < 0) rad = 0;
-    return rad;
-}
-
-// Filled rounded rectangle: center + edge rects + 4 corner triangle-fans.
-void gfx_rounded_rect(Rectangle r, float roundness, int segments, Color c) {
-    float rad = roundness_radius(r, roundness);
-    if (rad <= 0.5f) { gfx_rect((int)r.x, (int)r.y, (int)r.width, (int)r.height, c); return; }
-    if (segments < 2) segments = 2;
-    float x = r.x, y = r.y, w = r.width, h = r.height;
-    quad_solid(x + rad, y, w - 2 * rad, h, c);       // center column
-    quad_solid(x, y + rad, rad, h - 2 * rad, c);     // left strip
-    quad_solid(x + w - rad, y + rad, rad, h - 2 * rad, c); // right strip
-    // corners: centers and starting angles (radians)
-    float cx[4] = { x + rad, x + w - rad, x + w - rad, x + rad };
-    float cy[4] = { y + rad, y + rad, y + h - rad, y + h - rad };
-    float a0[4] = { (float)M_PI, (float)(1.5 * M_PI), 0.0f, (float)(0.5 * M_PI) };
-    for (int k = 0; k < 4; k++) {
-        float step = (float)(0.5 * M_PI) / segments;
-        for (int s = 0; s < segments; s++) {
-            float a = a0[k] + s * step, b = a + step;
-            tri_solid(cx[k], cy[k],
-                      cx[k] + cosf(a) * rad, cy[k] + sinf(a) * rad,
-                      cx[k] + cosf(b) * rad, cy[k] + sinf(b) * rad, c);
-        }
-    }
-}
-
-// Rounded outline: straight edge quads inset by the corner radius (corners left
-// as small gaps — a subtle border, adequate for the control buttons).
-void gfx_rounded_rect_lines(Rectangle r, float roundness, int segments, float t, Color c) {
-    (void)segments;
-    float rad = roundness_radius(r, roundness);
-    if (t < 1) t = 1;
-    int ti = (int)(t + 0.5f);
-    gfx_rect((int)(r.x + rad), (int)r.y, (int)(r.width - 2 * rad), ti, c);
-    gfx_rect((int)(r.x + rad), (int)(r.y + r.height - ti), (int)(r.width - 2 * rad), ti, c);
-    gfx_rect((int)r.x, (int)(r.y + rad), ti, (int)(r.height - 2 * rad), c);
-    gfx_rect((int)(r.x + r.width - ti), (int)(r.y + rad), ti, (int)(r.height - 2 * rad), c);
-}
-
-
 // Text: a faithful port of raylib's DrawText -> DrawTextEx (spacing = fontSize /
 // baseSize as an int, scaleFactor = fontSize / baseSize), drawing each glyph's
 // atlas rect at its offset. Produces pixel-identical output to the other

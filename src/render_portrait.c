@@ -25,13 +25,11 @@ static int outer_margin(void) {
 // --- Shared portrait layout -------------------------------------------------
 // Title bar, then one HUD band above the field: SCORE / LINES / LEVEL columns
 // (uniform font, labels over values) with the NEXT preview box right-aligned.
-// A pause key sits above the band's right edge, in the top-right corner spot
-// mobile players expect.
+// There is no on-screen pause key — a two-finger tap pauses (see input.c).
 typedef struct {
     int fs, hud_h, band_y;       // uniform font size; band height and top y
     int cell, px, py, field_w;   // playfield geometry
     int nbox;                    // NEXT box side (== hud_h, snapped to 4 cells)
-    Rectangle pause;             // pause key
 } BandLayout;
 
 static void band_layout(BandLayout* L) {
@@ -40,12 +38,6 @@ static void band_layout(BandLayout* L) {
     int tb_h    = title_bar_h(h);
     int avail_h = h - tb_h - 2 * m;   // margin below the bar and at the bottom
 
-    // Pause key: a comfortable tap target even on small screens, tucked above
-    // the band's right edge.
-    int pause_side = h / 16;
-    int pause_gap  = h / 100;
-    int pause_blk  = pause_side + pause_gap;
-
     // Uniform font: start at the approved size, shrink only if the three stat
     // columns plus the NEXT box can't fit across the field width.
     int fs = h / 38;
@@ -53,7 +45,7 @@ static void band_layout(BandLayout* L) {
     for (;; fs--) {
         int hud_h = 2 * fs + fs / 3;
         int cw = (w - 2 * m) / PLAYFIELD_WIDTH;
-        int ch = (avail_h - hud_h - m - pause_blk) / PLAYFIELD_HEIGHT;
+        int ch = (avail_h - hud_h - m) / PLAYFIELD_HEIGHT;
         cell = (cw < ch) ? cw : ch;
         if (cell < 1) cell = 1;
         field_w = cell * PLAYFIELD_WIDTH;
@@ -69,47 +61,15 @@ static void band_layout(BandLayout* L) {
     L->px     = (w - field_w) / 2;
     // The HUD -> playfield gap is the global margin; leftover height centers
     // the whole block between the title bar and the bottom margin.
-    int block = pause_blk + L->hud_h + m + cell * PLAYFIELD_HEIGHT;
-    int top   = tb_h + m + (avail_h - block) / 2;
-    L->band_y = top + pause_blk;
+    int block = L->hud_h + m + cell * PLAYFIELD_HEIGHT;
+    L->band_y = tb_h + m + (avail_h - block) / 2;
     L->py     = L->band_y + L->hud_h + m;
-    L->pause  = (Rectangle){ (float)(L->px + field_w - pause_side), (float)top,
-                             (float)pause_side, (float)pause_side };
 }
 
 int render_portrait_cell(void) {
     BandLayout L;
     band_layout(&L);
     return L.cell;
-}
-
-// The menu/pause button: the top-right corner key above the HUD band.
-void render_menu_button_rect(Rectangle* out) {
-    BandLayout L;
-    band_layout(&L);
-    *out = L.pause;
-}
-
-// Draw the menu/pause button as a rounded key with a 3-bar "menu" glyph.
-// Brightens while a finger rests on it.
-static void draw_menu_button(void) {
-    Rectangle r;
-    render_menu_button_rect(&r);
-    int touches = GetTouchPointCount();
-    bool pressed = false;
-    for (int t = 0; t < touches; t++) {
-        if (CheckCollisionPointRec(GetTouchPosition(t), r)) { pressed = true; break; }
-    }
-    Color fill = pressed ? (Color){44, 47, 58, 255} : (Color){24, 26, 32, 255};
-    Color edge = pressed ? (Color){90, 96, 112, 255} : (Color){48, 52, 62, 255};
-    Color ic   = pressed ? (Color){215, 219, 228, 255} : (Color){150, 156, 170, 255};
-    gfx_rounded_rect(r, 0.30f, 10, fill);
-    gfx_rounded_rect_lines(r, 0.30f, 10, 1.5f, edge);
-    int bx = (int)(r.x + r.width * 0.28f), bw = (int)(r.width * 0.44f);
-    int bh = (int)(r.height * 0.09f) + 1;
-    for (int i = 0; i < 3; i++) {
-        gfx_rect(bx, (int)(r.y + r.height * (0.32f + 0.18f * i)), bw, bh, ic);
-    }
 }
 
 // Thin full-width title bar at the very top, matching the landscape renderer.
@@ -155,8 +115,6 @@ static void draw_game_portrait(const Game* game) {
     gfx_text(TextFormat("%d", game->level), x, val_y, fs, YELLOW);
 
     draw_playfield(game, L.px, L.py, L.cell);
-
-    draw_menu_button();  // top-right pause key
 }
 
 static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {

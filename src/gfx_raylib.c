@@ -19,14 +19,6 @@ void gfx_line(int x1, int y1, int x2, int y2, Color color) {
     DrawLine(x1, y1, x2, y2, color);
 }
 
-void gfx_rounded_rect(Rectangle rec, float roundness, int segments, Color color) {
-    DrawRectangleRounded(rec, roundness, segments, color);
-}
-void gfx_rounded_rect_lines(Rectangle rec, float roundness, int segments,
-                            float line_thick, Color color) {
-    DrawRectangleRoundedLinesEx(rec, roundness, segments, line_thick, color);
-}
-
 void gfx_text(const char* text, int x, int y, int font_size, Color color) {
     DrawText(text, x, y, font_size, color);
 }
