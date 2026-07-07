@@ -207,7 +207,9 @@ static void draw_game_band(const Game* game, int cell, int top_pad, int avail_h,
     nbox = ncell * 4;
     int nx     = play_x + field_w - nbox;
     int nbox_y = band_y + label_fs + label_fs / 3;
-    gfx_text("NEXT", nx, band_y, label_fs, (Color){150, 156, 170, 255});
+    // Right-align the label with the box so it can't run into the LEVEL column.
+    int nlab_w = gfx_measure_text("NEXT", label_fs);
+    gfx_text("NEXT", nx + nbox - nlab_w, band_y, label_fs, (Color){150, 156, 170, 255});
     gfx_rect_lines(nx, nbox_y, nbox, nbox, LIGHTGRAY);
     gfx_rect(nx + 1, nbox_y + 1, nbox - 2, nbox - 2, BOARD_BG);
     Color next_color = color_from_piece(game->next_piece.type, game->level);
@@ -216,8 +218,8 @@ static void draw_game_band(const Game* game, int cell, int top_pad, int avail_h,
     // Stat columns left-aligned to the field edge; SCORE gets the wide first
     // column (six digits), LINES / LEVEL follow at fixed fractions of the field.
     int sx = play_x;
-    int lines_x = play_x + field_w * 42 / 100;
-    int level_x = play_x + field_w * 65 / 100;
+    int lines_x = play_x + field_w * 40 / 100;
+    int level_x = play_x + field_w * 61 / 100;
     const char* score = TextFormat("%06u", (unsigned int)game->score);
     int score_fs = value_fs;
     while (score_fs > 8 &&
