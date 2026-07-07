@@ -186,16 +186,18 @@ jobs:
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
+      # Pinned to the v1.1.5 commit SHA (not the mutable tag) so a retagged
+      # upstream release can't silently change what runs against our signing key.
       - name: Publish AAB to the Play internal track
         if: steps.playsecret.outputs.present == 'true' && steps.playpublish.outputs.present == 'true'
-        env:
-          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          PLAY_RELEASE_NOTES: release-${{ needs.prepare.outputs.version }}
-          V: ${{ needs.prepare.outputs.version }}
-        run: |
-          python3 -m pip install --quiet --disable-pip-version-check cryptography
-          python3 scripts/play_upload.py \
-            "dist/openblocks-build-$V-android.aab" internal
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5  # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.danheskett.openblocks
+          releaseFiles: dist/openblocks-build-${{ needs.prepare.outputs.version }}-android.aab
+          track: internal
+          status: completed
+          releaseName: release-${{ needs.prepare.outputs.version }}
       - uses: actions/upload-artifact@v7
         with:
           name: android
