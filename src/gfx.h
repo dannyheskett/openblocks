@@ -29,10 +29,6 @@ void gfx_rounded_rect(Rectangle rec, float roundness, int segments, Color color)
 void gfx_rounded_rect_lines(Rectangle rec, float roundness, int segments,
                             float line_thick, Color color);
 
-void gfx_poly(Vector2 center, int sides, float radius, float rotation, Color color);
-void gfx_ring(Vector2 center, float inner_radius, float outer_radius,
-              float start_angle, float end_angle, int segments, Color color);
-
 void gfx_text(const char* text, int x, int y, int font_size, Color color);
 int  gfx_measure_text(const char* text, int font_size);
 

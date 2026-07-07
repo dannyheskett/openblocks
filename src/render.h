@@ -33,21 +33,6 @@ void render_toggle_fullscreen(void);
 // is sent to the background (Android suspend/resume).
 bool render_window_focused(void);
 
-// On-screen touch controls (Android). The bottom control bar holds a row of
-// four buttons; render.c draws them and input.c hit-tests them, both using the
-// rectangles from render_touch_button_rects() so their geometry never diverges.
-typedef enum {
-    BTN_LEFT,
-    BTN_RIGHT,
-    BTN_ROTATE,
-    BTN_DROP,
-    BTN_COUNT,
-} TouchButton;
-
-// Fill rects[BTN_COUNT] with the current on-screen button rectangles (screen
-// coordinates, which map 1:1 to touches since Android renders at native res).
-void render_touch_button_rects(Rectangle rects[BTN_COUNT]);
-
 // Return the menu item index at screen point `p`, or -1 if none. Uses the item
 // rectangles captured by the last render_menu() call (Android touch menus).
 int render_menu_hit_test(Vector2 p);
@@ -62,11 +47,6 @@ void render_menu_button_rect(Rectangle* out);
 // render_set_portrait(true) = portrait touch layout, false = desktop landscape.
 void render_set_portrait(bool portrait);
 bool render_use_portrait(void);
-
-// On-screen button row toggle (portrait). Gestures are the primary controls;
-// the button row is opt-in from the menu. Off by default.
-void render_set_touch_buttons(bool shown);
-bool render_touch_buttons_shown(void);
 
 // Playfield cell size in pixels for the current portrait layout. The gesture
 // input layer uses it as the drag distance that moves the piece one column.

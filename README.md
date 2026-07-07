@@ -26,14 +26,15 @@ compile only portrait; the web build compiles both and selects one at runtime.
   window (integer scale on native desktop, fractional on web). Three-column
   layout: piece statistics on the left, the playfield centered, and
   lines / score / level / next on the right.
-- **Portrait** — adaptive to the live screen size. A title bar with a menu
-  button is pinned to the top, a SCORE / LINES / LEVEL / NEXT band sits below it,
-  the playfield fills the middle at the largest square cell that fits, and a row
-  of on-screen buttons sits in a bottom control bar.
+- **Portrait** — adaptive to the live screen size. A thin OPENBLOCKS title bar
+  is pinned to the top, a SCORE / LINES / LEVEL / NEXT band sits below it with a
+  pause key in the top-right corner, and the playfield fills the middle at the
+  largest square cell that fits, with a uniform margin on every edge. The game
+  is controlled entirely by gestures.
 
 The web build picks the renderer from the pointer type
 (`matchMedia('(pointer: coarse)')`): a phone or tablet gets portrait, a desktop
-browser gets landscape. A **Controls: On/Off** menu item overrides the choice.
+browser gets landscape.
 
 ## Controls
 
@@ -47,12 +48,13 @@ browser gets landscape. A **Controls: On/Off** menu item overrides the choice.
 - **Alt+Enter**: toggle fullscreen
 - **Up / Down** (or W / S) + **Enter / Space**: menu navigation
 
-**Touch** (Android, iOS, and mobile browsers):
+**Touch** (Android, iOS, and mobile browsers) — all gestures:
 
-- **◀ / ▶** buttons: move (hold to auto-repeat)
-- **Rotate** button, or a tap on the playfield: rotate
-- **Drop** button: tap for a hard drop, hold for a soft drop
-- **☰** button (top-right): return to the menu
+- **Drag sideways**: move (the piece tracks the finger, one column per cell)
+- **Drag down**: soft drop
+- **Flick down**: hard drop
+- **Tap**: rotate
+- **☰** key (top-right): return to the menu
 - **Swipe up / down** + **tap**: menu navigation and select
 
 ## Building

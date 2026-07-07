@@ -1,46 +1,50 @@
 // Portrait (touch) renderer: adaptive layout drawn straight to the screen at the
-// device's real resolution — title bar, HUD band, a square-cell playfield, and a
-// bottom row of on-screen buttons. Compiles to an empty object off OB_PORTRAIT.
+// device's real resolution — a thin OPENBLOCKS title bar, HUD band, and a
+// square-cell playfield, all controlled by gestures (no on-screen buttons).
+// Compiles to an empty object off OB_PORTRAIT.
 #include "render_internal.h"
 #include <stddef.h> // NULL
 
 #ifdef OB_PORTRAIT
 
-// Height of the bottom on-screen control bar. Slimmed from h/7 so the playfield
-// reclaims the height; buttons stay ~0.72*bar (comfortably above the 44pt min).
-// Zero when the button row is hidden (gesture controls, the default) — the
-// playfield takes the height instead.
-static int control_bar_h(int h) {
-    return render_touch_buttons_shown() ? h / 8 : 0;
+// Thin full-width title bar across the very top, matching the landscape
+// renderer's (24px tall with 16px text on the 480px canvas — keep that ratio).
+static int title_fs(int h)    { int fs = h / 45; return (fs < 10) ? 10 : fs; }
+static int title_bar_h(int h) { int fs = title_fs(h); return fs + fs / 2; }
+
+// Global margin: the breathing room applied on every edge (playfield left /
+// right / bottom, below the title bar) and as the gap between the bottom of
+// the HUD band and the top of the playfield. Scales with the short screen
+// dimension so it stays proportional across resolutions and aspect ratios.
+static int outer_margin(void) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int m = ((w < h) ? w : h) / 28;
+    return (m < 6) ? 6 : m;
 }
 
 // --- Shared portrait layout -------------------------------------------------
-// One HUD band above the field: SCORE / LINES / LEVEL columns (uniform font,
-// labels over values) with the NEXT preview box right-aligned. In gesture mode
-// a pause key sits in the screen's top-right corner above the band (the spot
-// mobile players expect); in button mode the pause key lives in the bottom row.
+// Title bar, then one HUD band above the field: SCORE / LINES / LEVEL columns
+// (uniform font, labels over values) with the NEXT preview box right-aligned.
+// A pause key sits above the band's right edge, in the top-right corner spot
+// mobile players expect.
 typedef struct {
     int fs, hud_h, band_y;       // uniform font size; band height and top y
     int cell, px, py, field_w;   // playfield geometry
     int nbox;                    // NEXT box side (== hud_h, snapped to 4 cells)
-    Rectangle pause;             // pause key (gesture mode; unused with buttons)
+    Rectangle pause;             // pause key
 } BandLayout;
 
 static void band_layout(BandLayout* L) {
     int w = GetScreenWidth(), h = GetScreenHeight();
-    int outer    = w / 30;
-    int top_pad  = h / 40;
-    int bar_h    = control_bar_h(h);
-    int bottom_m = h / 45;
-    int avail_h  = h - top_pad - bar_h - bottom_m;
-    int hud_gap  = h / 70;
-    bool gesture = !render_touch_buttons_shown();
+    int m       = outer_margin();
+    int tb_h    = title_bar_h(h);
+    int avail_h = h - tb_h - 2 * m;   // margin below the bar and at the bottom
 
-    // Pause key row (gesture mode only): a comfortable tap target even on small
-    // screens, tucked above the band's right edge.
+    // Pause key: a comfortable tap target even on small screens, tucked above
+    // the band's right edge.
     int pause_side = h / 16;
     int pause_gap  = h / 100;
-    int pause_blk  = gesture ? pause_side + pause_gap : 0;
+    int pause_blk  = pause_side + pause_gap;
 
     // Uniform font: start at the approved size, shrink only if the three stat
     // columns plus the NEXT box can't fit across the field width.
@@ -48,8 +52,8 @@ static void band_layout(BandLayout* L) {
     int cell, field_w, nbox;
     for (;; fs--) {
         int hud_h = 2 * fs + fs / 3;
-        int cw = (w - 2 * outer) / PLAYFIELD_WIDTH;
-        int ch = (avail_h - hud_h - hud_gap - pause_blk) / PLAYFIELD_HEIGHT;
+        int cw = (w - 2 * m) / PLAYFIELD_WIDTH;
+        int ch = (avail_h - hud_h - m - pause_blk) / PLAYFIELD_HEIGHT;
         cell = (cw < ch) ? cw : ch;
         if (cell < 1) cell = 1;
         field_w = cell * PLAYFIELD_WIDTH;
@@ -63,10 +67,12 @@ static void band_layout(BandLayout* L) {
     L->field_w = field_w;
     L->nbox   = nbox;
     L->px     = (w - field_w) / 2;
-    int block = pause_blk + L->hud_h + hud_gap + cell * PLAYFIELD_HEIGHT;
-    int top   = top_pad + (avail_h - block) / 2;
+    // The HUD -> playfield gap is the global margin; leftover height centers
+    // the whole block between the title bar and the bottom margin.
+    int block = pause_blk + L->hud_h + m + cell * PLAYFIELD_HEIGHT;
+    int top   = tb_h + m + (avail_h - block) / 2;
     L->band_y = top + pause_blk;
-    L->py     = L->band_y + L->hud_h + hud_gap;
+    L->py     = L->band_y + L->hud_h + m;
     L->pause  = (Rectangle){ (float)(L->px + field_w - pause_side), (float)top,
                              (float)pause_side, (float)pause_side };
 }
@@ -77,65 +83,15 @@ int render_portrait_cell(void) {
     return L.cell;
 }
 
-// Shared bottom-row geometry: the four game keys plus the menu/pause button,
-// computed together so they never overlap. There is no title bar in portrait, so
-// the menu button lives at the right end of the control row; the four game keys
-// are centred in the width that remains to its left. Both render_touch_button_rects
-// (game keys) and render_menu_button_rect (menu key) read from here, keeping the
-// draw code and input hit-testing in lockstep. Pass NULL for either output.
-static void bottom_row_layout(Rectangle game[BTN_COUNT], Rectangle* menu) {
-    int w = GetScreenWidth(), h = GetScreenHeight();
-    int bar_h = control_bar_h(h);
-    int bar_y = h - bar_h;
-
-    // Reserve a right-hand slot for the menu key; centre the game keys in the rest.
-    int msize    = (int)(bar_h * 0.56f);   // a touch smaller than the game keys
-    int medge    = w / 30;                 // menu key's right margin
-    int reserved = msize + 2 * medge;
-    int usable   = w - reserved;
-
-    int bsize = (int)(bar_h * 0.72f);
-    int gap   = w / 26;
-    int side  = w / 20;                    // keep the row off the screen edges
-    int max_total = usable - 2 * side;
-    int total = BTN_COUNT * bsize + (BTN_COUNT - 1) * gap;
-    if (total > max_total) {
-        bsize = (max_total - (BTN_COUNT - 1) * gap) / BTN_COUNT;
-        total = BTN_COUNT * bsize + (BTN_COUNT - 1) * gap;
-    }
-    int startx = (usable - total) / 2;
-    int by = bar_y + (bar_h - bsize) / 2;
-    if (game) {
-        for (int i = 0; i < BTN_COUNT; i++) {
-            game[i] = (Rectangle){ (float)(startx + i * (bsize + gap)),
-                                   (float)by, (float)bsize, (float)bsize };
-        }
-    }
-    if (menu) {
-        int my = bar_y + (bar_h - msize) / 2;
-        *menu = (Rectangle){ (float)(w - msize - medge), (float)my,
-                             (float)msize, (float)msize };
-    }
-}
-
-void render_touch_button_rects(Rectangle rects[BTN_COUNT]) {
-    bottom_row_layout(rects, NULL);
-}
-
-// The menu/pause button: right end of the bottom control row when the button
-// row is shown, else the top-right corner key above the HUD band.
+// The menu/pause button: the top-right corner key above the HUD band.
 void render_menu_button_rect(Rectangle* out) {
-    if (render_touch_buttons_shown()) {
-        bottom_row_layout(NULL, out);
-    } else {
-        BandLayout L;
-        band_layout(&L);
-        *out = L.pause;
-    }
+    BandLayout L;
+    band_layout(&L);
+    *out = L.pause;
 }
 
-// Draw the menu/pause button as a rounded key matching the game keys' styling,
-// with a 3-bar "menu" glyph. Brightens while a finger rests on it.
+// Draw the menu/pause button as a rounded key with a 3-bar "menu" glyph.
+// Brightens while a finger rests on it.
 static void draw_menu_button(void) {
     Rectangle r;
     render_menu_button_rect(&r);
@@ -156,55 +112,18 @@ static void draw_menu_button(void) {
     }
 }
 
-// Draw the four control buttons with subtle, low-contrast styling and clean
-// vector icons. Buttons brighten slightly while a finger rests on them.
-static void draw_touch_buttons(void) {
-    Rectangle r[BTN_COUNT];
-    render_touch_button_rects(r);
-    int touches = GetTouchPointCount();
-
-    for (int i = 0; i < BTN_COUNT; i++) {
-        bool pressed = false;
-        for (int t = 0; t < touches; t++) {
-            if (CheckCollisionPointRec(GetTouchPosition(t), r[i])) { pressed = true; break; }
-        }
-        Color fill = pressed ? (Color){44, 47, 58, 255} : (Color){24, 26, 32, 255};
-        Color edge = pressed ? (Color){90, 96, 112, 255} : (Color){48, 52, 62, 255};
-        Color icon = pressed ? (Color){215, 219, 228, 255} : (Color){150, 156, 170, 255};
-        gfx_rounded_rect(r[i], 0.30f, 10, fill);
-        gfx_rounded_rect_lines(r[i], 0.30f, 10, 1.5f, edge);
-
-        float cx = r[i].x + r[i].width / 2.0f;
-        float cy = r[i].y + r[i].height / 2.0f;
-        float s = r[i].height * 0.26f;
-        Vector2 c = {cx, cy};
-        switch (i) {
-        case BTN_LEFT:  gfx_poly(c, 3, s, 180, icon); break; // points left
-        case BTN_RIGHT: gfx_poly(c, 3, s, 0,   icon); break; // points right
-        case BTN_ROTATE:
-            gfx_ring(c, s * 0.52f, s * 0.82f, 40, 320, 32, icon);           // C-shaped arrow
-            gfx_poly((Vector2){cx, cy - s * 0.67f}, 3, s * 0.32f, 0, icon); // arrowhead
-            break;
-        case BTN_DROP:
-            gfx_poly((Vector2){cx, cy - s * 0.25f}, 3, s, 90, icon);        // points down
-            gfx_rect((int)(cx - s * 0.9f), (int)(cy + s * 0.85f),
-                          (int)(s * 1.8f), 3, icon);                        // floor line
-            break;
-        }
-    }
-}
-
-// A small labelled stat drawn in a side gutter rail: dim label over a bright
-// value, both left-aligned at x. Returns the y just below the value.
-static int draw_gutter_stat(const char* label, const char* value, int x,
-                            int y, int label_fs, int value_fs) {
-    gfx_text(label, x, y, label_fs, (Color){150, 156, 170, 255});
-    gfx_text(value, x, y + label_fs + label_fs / 3, value_fs, YELLOW);
-    return y + label_fs + label_fs / 3 + value_fs;
+// Thin full-width title bar at the very top, matching the landscape renderer.
+static void draw_title_bar(void) {
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int fs = title_fs(h), tb_h = title_bar_h(h);
+    gfx_rect(0, 0, w, tb_h, DARKGRAY);
+    gfx_text("OPENBLOCKS", (w - gfx_measure_text("OPENBLOCKS", fs)) / 2,
+             (tb_h - fs) / 2, fs, WHITE);
 }
 
 static void draw_game_portrait(const Game* game) {
     gfx_clear(BLACK);
+    draw_title_bar();
     BandLayout L;
     band_layout(&L);
     int fs = L.fs, line_gap = L.fs / 3;
@@ -237,8 +156,7 @@ static void draw_game_portrait(const Game* game) {
 
     draw_playfield(game, L.px, L.py, L.cell);
 
-    if (render_touch_buttons_shown()) draw_touch_buttons();
-    draw_menu_button();  // bottom row (buttons) or top-right pause key (gestures)
+    draw_menu_button();  // top-right pause key
 }
 
 static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {
