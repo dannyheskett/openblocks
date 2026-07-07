@@ -172,6 +172,30 @@ jobs:
             PLAY_KEY_ALIAS="$PLAY_KEY_ALIAS" \
             PLAY_STORE_PASS="$PLAY_KEYSTORE_PASSWORD" \
             PLAY_KEY_PASS="$PLAY_KEY_PASSWORD"
+      # Publishing needs a fifth secret (the Play Developer API service account)
+      # on top of the four signing secrets. Probe it separately so a repo that
+      # can build a signed AAB but isn't wired for API upload still ships the
+      # bundle as a release asset without failing.
+      - name: Detect Play publish secret
+        id: playpublish
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$SA" ]; then
+            echo "present=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish AAB to the Play internal track
+        if: steps.playsecret.outputs.present == 'true' && steps.playpublish.outputs.present == 'true'
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_RELEASE_NOTES: release-${{ needs.prepare.outputs.version }}
+          V: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check cryptography
+          python3 scripts/play_upload.py \
+            "dist/openblocks-build-$V-android.aab" internal
       - uses: actions/upload-artifact@v7
         with:
           name: android
