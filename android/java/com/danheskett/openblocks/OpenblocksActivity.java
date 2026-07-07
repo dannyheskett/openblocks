@@ -1,8 +1,10 @@
 package com.danheskett.openblocks;
 
 import android.app.NativeActivity;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.DisplayCutout;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -21,10 +23,20 @@ import android.view.WindowInsetsController;
  */
 public class OpenblocksActivity extends NativeActivity {
 
+    // Implemented in native (src/safe_area.c). Hands the display-cutout geometry
+    // to the renderer so it can lay the title bar out around the front camera.
+    private native void nativeSetSafeInsets(int top, int cutoutLeft, int cutoutRight);
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         goImmersive();
+        // Re-read the cutout whenever the window insets settle (first layout,
+        // rotation, foldables) and forward it to native.
+        getWindow().getDecorView().setOnApplyWindowInsetsListener((v, insets) -> {
+            pushSafeInsets();
+            return insets;
+        });
     }
 
     @Override
@@ -32,7 +44,30 @@ public class OpenblocksActivity extends NativeActivity {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             goImmersive();
+            pushSafeInsets();
         }
+    }
+
+    private void pushSafeInsets() {
+        int top = 0, left = 0, right = 0;
+        if (Build.VERSION.SDK_INT >= 28) {
+            WindowInsets wi = getWindow().getDecorView().getRootWindowInsets();
+            DisplayCutout dc = (wi != null) ? wi.getDisplayCutout() : null;
+            if (dc != null) {
+                top = dc.getSafeInsetTop();
+                // The top-edge cutout is the bounding rect flush with the top of
+                // the screen; take its horizontal extent so native knows where
+                // the camera sits.
+                for (Rect r : dc.getBoundingRects()) {
+                    if (r.top <= 0) {
+                        left = r.left;
+                        right = r.right;
+                        break;
+                    }
+                }
+            }
+        }
+        nativeSetSafeInsets(top, left, right);
     }
 
     private void goImmersive() {

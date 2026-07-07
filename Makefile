@@ -16,6 +16,7 @@ MINIMP4_INC  := third_party/minimp4
 
 SRC := src/main.c src/game.c src/input.c \
        src/render.c src/render_portrait.c src/render_landscape.c src/gfx_raylib.c \
+       src/safe_area.c \
        src/sound.c src/audio_raylib.c \
        src/recorder.c src/encode_h264.c src/encode_mux.c
 
