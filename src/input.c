@@ -149,10 +149,12 @@ static void poll_touch(Input* in) {
             // Touch ended: decide the discrete action on RELEASE. (raylib's
             // GESTURE_TAP fires on touch-DOWN, so using it here would fire a
             // rotate at the start of every drag.)
-            if (mode == 2 && (now - t0) < 0.22 && last_dy > (float)step * 1.6f) {
-                in->hard_drop_pressed = true; // fast downward flick
+            double dur = now - t0;
+            if (mode == 2 && dur < 0.35 && last_dy > (float)step * 1.2f &&
+                last_dy / (float)dur > (float)step * 6.0f) {
+                in->hard_drop_pressed = true; // fast downward flick (velocity-based)
                 in->any_pressed = true;
-            } else if (mode == 0 && (now - t0) < 0.30) {
+            } else if (mode == 0 && dur < 0.30) {
                 // A tap: pause key -> menu, anywhere else -> rotate. Also feeds
                 // menu select / overlay dismissal via the tap fields.
                 Rectangle mb; render_menu_button_rect(&mb);
