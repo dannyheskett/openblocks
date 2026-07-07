@@ -18,11 +18,6 @@ bool render_use_portrait(void) { return true; }   // Android / iOS: portrait onl
 bool render_use_portrait(void) { return false; }  // desktop native: landscape only
 #endif
 
-// Portrait on-screen button row: opt-in (gestures are the primary controls).
-static bool s_touch_buttons = false;
-void render_set_touch_buttons(bool shown) { s_touch_buttons = shown; }
-bool render_touch_buttons_shown(void) { return s_touch_buttons; }
-
 // Repeated playfield colours, named for clarity (shared with both renderers).
 const Color BOARD_BG  = {20, 20, 20, 255}; // playfield / NEXT-box fill
 const Color GRID_LINE = {40, 40, 40, 255}; // faint playfield grid lines

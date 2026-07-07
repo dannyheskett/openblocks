@@ -271,37 +271,6 @@ void gfx_rounded_rect_lines(Rectangle r, float roundness, int segments, float t,
     gfx_rect((int)(r.x + r.width - ti), (int)(r.y + rad), ti, (int)(r.height - 2 * rad), c);
 }
 
-// Regular polygon (triangle fan), matching raylib DrawPoly (rotation in degrees).
-void gfx_poly(Vector2 center, int sides, float radius, float rotation, Color c) {
-    if (sides < 3) sides = 3;
-    float step = (float)(2.0 * M_PI) / sides;
-    float rot = rotation * (float)M_PI / 180.0f;
-    for (int i = 0; i < sides; i++) {
-        float a = rot + i * step, b = rot + (i + 1) * step;
-        tri_solid(center.x, center.y,
-                  center.x + cosf(a) * radius, center.y + sinf(a) * radius,
-                  center.x + cosf(b) * radius, center.y + sinf(b) * radius, c);
-    }
-}
-
-// Ring sector between inner/outer radius over [startAngle,endAngle] (degrees).
-void gfx_ring(Vector2 center, float inner, float outer,
-              float startAngle, float endAngle, int segments, Color c) {
-    if (segments < 1) segments = 1;
-    float a0 = startAngle * (float)M_PI / 180.0f;
-    float a1 = endAngle   * (float)M_PI / 180.0f;
-    float step = (a1 - a0) / segments;
-    for (int i = 0; i < segments; i++) {
-        float a = a0 + i * step, b = a0 + (i + 1) * step;
-        float cia = cosf(a), sia = sinf(a), cib = cosf(b), sib = sinf(b);
-        float ix0 = center.x + cia * inner, iy0 = center.y + sia * inner;
-        float ox0 = center.x + cia * outer, oy0 = center.y + sia * outer;
-        float ix1 = center.x + cib * inner, iy1 = center.y + sib * inner;
-        float ox1 = center.x + cib * outer, oy1 = center.y + sib * outer;
-        tri_solid(ix0, iy0, ox0, oy0, ox1, oy1, c);
-        tri_solid(ix0, iy0, ox1, oy1, ix1, iy1, c);
-    }
-}
 
 // Text: a faithful port of raylib's DrawText -> DrawTextEx (spacing = fontSize /
 // baseSize as an int, scaleFactor = fontSize / baseSize), drawing each glyph's

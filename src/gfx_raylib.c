@@ -27,14 +27,6 @@ void gfx_rounded_rect_lines(Rectangle rec, float roundness, int segments,
     DrawRectangleRoundedLinesEx(rec, roundness, segments, line_thick, color);
 }
 
-void gfx_poly(Vector2 center, int sides, float radius, float rotation, Color color) {
-    DrawPoly(center, sides, radius, rotation, color);
-}
-void gfx_ring(Vector2 center, float inner_radius, float outer_radius,
-              float start_angle, float end_angle, int segments, Color color) {
-    DrawRing(center, inner_radius, outer_radius, start_angle, end_angle, segments, color);
-}
-
 void gfx_text(const char* text, int x, int y, int font_size, Color color) {
     DrawText(text, x, y, font_size, color);
 }
