@@ -145,22 +145,34 @@ static void poll_touch(Input* in) {
             }
             if (mode == 2) in->down = true; // soft drop while dragging down
             last_dy = dy;
-        } else {
-            if (active && mode == 2 && (now - t0) < 0.22 &&
-                last_dy > (float)step * 1.6f) {
+        } else if (active) {
+            // Touch ended: decide the discrete action on RELEASE. (raylib's
+            // GESTURE_TAP fires on touch-DOWN, so using it here would fire a
+            // rotate at the start of every drag.)
+            if (mode == 2 && (now - t0) < 0.22 && last_dy > (float)step * 1.6f) {
                 in->hard_drop_pressed = true; // fast downward flick
                 in->any_pressed = true;
+            } else if (mode == 0 && (now - t0) < 0.30) {
+                // A tap: pause key -> menu, anywhere else -> rotate. Also feeds
+                // menu select / overlay dismissal via the tap fields.
+                Rectangle mb; render_menu_button_rect(&mb);
+                if (CheckCollisionPointRec(last_pos, mb)) in->escape_pressed = true;
+                else                                      in->rotate_pressed = true;
+                in->any_pressed = true;
+                in->touch_tap   = true;
+                in->tap_x = last_pos.x;
+                in->tap_y = last_pos.y;
             }
             active = false;
         }
         was_active = active; (void)was_active;
     }
 
-    // Discrete gestures. A plain tap rotates (gesture mode) unless it lands on
-    // the pause key; in button mode a tap on DROP = hard drop and taps on
-    // LEFT/RIGHT add nothing. Taps also drive menu select / overlay dismissal.
+    // Discrete gestures (button mode only — gesture mode decides taps on
+    // release, above). A tap on DROP = hard drop; on LEFT/RIGHT = nothing
+    // extra; anywhere else = rotate. Taps also drive menu select / dismissal.
     int g = GetGestureDetected();
-    if (g == GESTURE_TAP || g == GESTURE_DOUBLETAP) {
+    if (buttons && (g == GESTURE_TAP || g == GESTURE_DOUBLETAP)) {
         Rectangle mb; render_menu_button_rect(&mb);
         bool on_menu = CheckCollisionPointRec(last_pos, mb);
         if (on_menu)      in->escape_pressed = true;   // pause key -> back to menu
