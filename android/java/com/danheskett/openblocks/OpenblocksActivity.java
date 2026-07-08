@@ -23,6 +23,18 @@ import android.view.WindowInsetsController;
  */
 public class OpenblocksActivity extends NativeActivity {
 
+    // NativeActivity loads libopenblocks.so by dlopen()ing it in framework
+    // native code, which never registers it with this class's ClassLoader. ART's
+    // implicit JNI resolution only searches libraries the ClassLoader knows
+    // about, so a `native` method declared here would fail to resolve at the
+    // first call ("No implementation found for nativeSetSafeInsets") and crash
+    // the app. Loading the same .so again from Java registers it for JNI
+    // resolution; dlopen is idempotent, so NativeActivity's own load and the
+    // single android_main entry are unaffected.
+    static {
+        System.loadLibrary("openblocks");
+    }
+
     // Implemented in native (src/safe_area.c). Hands the display-cutout geometry
     // to the renderer so it can lay the title bar out around the front camera.
     private native void nativeSetSafeInsets(int top, int cutoutLeft, int cutoutRight);
@@ -67,7 +79,13 @@ public class OpenblocksActivity extends NativeActivity {
                 }
             }
         }
-        nativeSetSafeInsets(top, left, right);
+        // The cutout layout is cosmetic; never let a JNI/link hiccup crash the
+        // game.
+        try {
+            nativeSetSafeInsets(top, left, right);
+        } catch (Throwable t) {
+            // Fall back to the plain centered wordmark (native keeps zeros).
+        }
     }
 
     private void goImmersive() {
