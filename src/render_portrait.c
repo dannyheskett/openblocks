@@ -3,6 +3,7 @@
 // square-cell playfield, all controlled by gestures (no on-screen buttons).
 // Compiles to an empty object off OB_PORTRAIT.
 #include "render_internal.h"
+#include "safe_area.h"
 #include <stddef.h> // NULL
 
 #ifdef OB_PORTRAIT
@@ -11,6 +12,16 @@
 // renderer's (24px tall with 16px text on the 480px canvas — keep that ratio).
 static int title_fs(int h)    { int fs = h / 45; return (fs < 10) ? 10 : fs; }
 static int title_bar_h(int h) { int fs = title_fs(h); return fs + fs / 2; }
+
+// Effective top-bar height: the thin title bar, grown to clear the display
+// cutout (front camera) when the surface draws under it, so neither the
+// wordmark nor the playfield below ever sits beneath the camera.
+static int top_bar_h(int h) {
+    int top, cl, cr;
+    safe_area_get(&top, &cl, &cr);
+    int tb = title_bar_h(h);
+    return (top > tb) ? top : tb;
+}
 
 // Global margin: the breathing room applied on every edge (playfield left /
 // right / bottom, below the title bar) and as the gap between the bottom of
@@ -35,7 +46,7 @@ typedef struct {
 static void band_layout(BandLayout* L) {
     int w = GetScreenWidth(), h = GetScreenHeight();
     int m       = outer_margin();
-    int tb_h    = title_bar_h(h);
+    int tb_h    = top_bar_h(h);
     int avail_h = h - tb_h - 2 * m;   // margin below the bar and at the bottom
 
     // Uniform font: start at the approved size, shrink only if the three stat
@@ -72,13 +83,50 @@ int render_portrait_cell(void) {
     return L.cell;
 }
 
-// Thin full-width title bar at the very top, matching the landscape renderer.
+// Full-width title bar at the very top. When a display cutout (front camera)
+// sits in the bar, the "OPENBLOCKS" wordmark is laid out around it:
+//   - cutout absent            -> centered full word (the desktop/web look).
+//   - room both sides          -> "OPEN" left of the camera, "BLOCKS" right.
+//   - lopsided (corner camera) -> whole word on the roomier side, if it fits.
+//   - wide notch, nothing fits -> bar only, no wordmark.
 static void draw_title_bar(void) {
     int w = GetScreenWidth(), h = GetScreenHeight();
-    int fs = title_fs(h), tb_h = title_bar_h(h);
+    int fs = title_fs(h), tb_h = top_bar_h(h);
+    int ty = (tb_h - fs) / 2;   // wordmark vertically centered in the bar
     gfx_rect(0, 0, w, tb_h, DARKGRAY);
-    gfx_text("OPENBLOCKS", (w - gfx_measure_text("OPENBLOCKS", fs)) / 2,
-             (tb_h - fs) / 2, fs, WHITE);
+
+    int top, cl, cr;
+    safe_area_get(&top, &cl, &cr);
+    int full = gfx_measure_text("OPENBLOCKS", fs);
+
+    // No horizontal extent reported. With no top inset either, there is no
+    // cutout at all -> original centered wordmark. If there IS a top inset we
+    // just couldn't localize, leave the bar bare rather than risk centering the
+    // word under the camera.
+    if (cr <= cl) {
+        if (top <= 0)
+            gfx_text("OPENBLOCKS", (w - full) / 2, ty, fs, WHITE);
+        return;
+    }
+
+    int pad        = fs / 2;        // clearance kept between text and the camera
+    int left_room  = cl;            // px available left of the cutout
+    int right_room = w - cr;        // px available right of the cutout
+    int open_w     = gfx_measure_text("OPEN", fs);
+    int blocks_w   = gfx_measure_text("BLOCKS", fs);
+
+    if (left_room >= open_w + pad && right_room >= blocks_w + pad) {
+        // Split the word around the camera.
+        gfx_text("OPEN",   cl - pad - open_w, ty, fs, WHITE);
+        gfx_text("BLOCKS", cr + pad,          ty, fs, WHITE);
+    } else if (right_room >= full + pad || left_room >= full + pad) {
+        // Corner camera: keep the word whole on whichever side has more room.
+        if (right_room >= left_room)
+            gfx_text("OPENBLOCKS", cr + pad, ty, fs, WHITE);
+        else
+            gfx_text("OPENBLOCKS", cl - pad - full, ty, fs, WHITE);
+    }
+    // else: wide notch — leave the bar bare.
 }
 
 static void draw_game_portrait(const Game* game) {
