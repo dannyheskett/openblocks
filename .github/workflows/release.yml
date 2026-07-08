@@ -172,32 +172,11 @@ jobs:
             PLAY_KEY_ALIAS="$PLAY_KEY_ALIAS" \
             PLAY_STORE_PASS="$PLAY_KEYSTORE_PASSWORD" \
             PLAY_KEY_PASS="$PLAY_KEY_PASSWORD"
-      # Publishing needs a fifth secret (the Play Developer API service account)
-      # on top of the four signing secrets. Probe it separately so a repo that
-      # can build a signed AAB but isn't wired for API upload still ships the
-      # bundle as a release asset without failing.
-      - name: Detect Play publish secret
-        id: playpublish
-        env:
-          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-        run: |
-          if [ -n "$SA" ]; then
-            echo "present=true"  >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-      # Pinned to the v1.1.5 commit SHA (not the mutable tag) so a retagged
-      # upstream release can't silently change what runs against our signing key.
-      - name: Publish AAB to the Play internal track
-        if: steps.playsecret.outputs.present == 'true' && steps.playpublish.outputs.present == 'true'
-        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5  # v1.1.5
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.danheskett.openblocks
-          releaseFiles: dist/openblocks-build-${{ needs.prepare.outputs.version }}-android.aab
-          track: internal
-          status: completed
-          releaseName: release-${{ needs.prepare.outputs.version }}
+      # The AAB is only built + uploaded as an artifact here; the actual push to
+      # Play happens in the separate publish-play job, which waits for EVERY
+      # platform build to succeed first (see below). That gate is why the upload
+      # is not done inline: a build job running in parallel with this one (e.g.
+      # iOS) could otherwise fail *after* Android had already shipped to Play.
       - uses: actions/upload-artifact@v7
         with:
           name: android
@@ -245,6 +224,47 @@ jobs:
         with:
           name: web
           path: dist/*
+
+  # Push the signed AAB to Play only AFTER every platform build has succeeded, so
+  # a failure in any build (e.g. the iOS .ipa link) blocks the Play release
+  # instead of letting a half-broken release reach testers. The bundle itself was
+  # built in build-android and carried here as the "android" artifact; this job
+  # just uploads it. Skips cleanly (never fails the release) when the AAB was not
+  # produced (signing secrets absent) or the publish secret is missing.
+  publish-play:
+    name: publish AAB to the Play internal track
+    needs: [prepare, build-linux-windows, build-mac, build-ios, build-android, build-web]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download the android artifact (contains the AAB)
+        uses: actions/download-artifact@v8
+        with:
+          name: android
+          path: dist
+      - name: Gate on the publish secret + a built AAB
+        id: gate
+        env:
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          aab="dist/openblocks-build-${{ needs.prepare.outputs.version }}-android.aab"
+          if [ -n "$SA" ] && [ -f "$aab" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Play publish (publish secret present: $([ -n "$SA" ] && echo yes || echo no); AAB present: $([ -f "$aab" ] && echo yes || echo no))."
+          fi
+      # Pinned to the v1.1.5 commit SHA (not the mutable tag) so a retagged
+      # upstream release can't silently change what runs against our signing key.
+      - name: Publish AAB to the Play internal track
+        if: steps.gate.outputs.go == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5  # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.danheskett.openblocks
+          releaseFiles: dist/openblocks-build-${{ needs.prepare.outputs.version }}-android.aab
+          track: internal
+          status: completed
+          releaseName: release-${{ needs.prepare.outputs.version }}
 
   publish:
     name: tag + publish GitHub Release
