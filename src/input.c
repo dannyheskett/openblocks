@@ -43,14 +43,30 @@ static void poll_keyboard(Input* in) {
 #endif // !PLATFORM_ANDROID
 
 #ifdef OB_TOUCH
+// Gesture-recognizer state that persists across frames for the current touch
+// sequence (first finger down to last finger up). Pulled out of poll_touch's
+// function statics into one module-owned value so the hidden state is explicit
+// and resettable, rather than scattered `static` locals inside a function that
+// otherwise reads as pure.
+typedef struct {
+    Vector2 last_pos;  // last active pointer position (source of tap coords)
+    bool    active;    // a touch sequence is in progress
+    Vector2 origin;    // where the sequence started (px)
+    float   anchor_x;  // advancing x anchor: one column per cell-width of travel
+    double  t0;        // sequence start time (s)
+    int     mode;      // 0 undecided, 1 horizontal drag, 2 downward drag
+    int     max_np;    // most simultaneous fingers seen during the sequence
+    float   last_dy;   // most recent vertical delta from origin (flick velocity)
+} TouchState;
+
+static TouchState s_touch;
+
 // Touch source: playfield gestures (drag/flick/tap, two-finger tap = pause)
 // plus swipe menus. Only ever sets fields true, so it composes over the
 // keyboard source on web without clobbering it. Native-resolution rendering
 // means touch coords map 1:1 to the on-screen geometry (menu rows).
 static void poll_touch(Input* in) {
     if (!render_use_portrait()) return; // landscape (desktop-browser) mode: keyboard only
-
-    static Vector2 last_pos = {0, 0};
 
     // Active pointers: touch points, or the mouse while its button is held.
     // Desktop browsers report no touch points for a mouse, so without this the
@@ -66,11 +82,11 @@ static void poll_touch(Input* in) {
 #endif
 
     if (np > 0) {
-        last_pos = pts[0];
+        s_touch.last_pos = pts[0];
     }
 #if !defined(PLATFORM_IOS)
     else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-        last_pos = GetMousePosition(); // remember where a click ended, for the tap below
+        s_touch.last_pos = GetMousePosition(); // remember where a click ended, for the tap below
     }
 #endif
 
@@ -80,73 +96,65 @@ static void poll_touch(Input* in) {
     // block-game players know. Drag sideways and the piece follows the finger
     // one column per cell-width; drag down slowly = soft drop; flick down =
     // hard drop; a plain tap (below) = rotate; a two-finger tap = pause/menu.
-    static bool   active = false;
-    static Vector2 origin = {0, 0};
-    static float  anchor_x = 0;
-    static double t0 = 0;
-    static int    mode = 0;  // 0 undecided, 1 horizontal, 2 down
-    static int    max_np = 0; // most fingers seen during this touch sequence
-    static float  last_dy = 0;
-
     int step = render_portrait_cell();
     if (step < 8) step = 8;
 
     if (np > 0) {
         Vector2 p = pts[0];
-        if (!active) {
-            active = true;
-            origin = p;
-            anchor_x = p.x;
-            t0 = now;
-            mode = 0;
-            max_np = 0;
+        if (!s_touch.active) {
+            s_touch.active = true;
+            s_touch.origin = p;
+            s_touch.anchor_x = p.x;
+            s_touch.t0 = now;
+            s_touch.mode = 0;
+            s_touch.max_np = 0;
         }
-        if (np > max_np) max_np = np;
+        if (np > s_touch.max_np) s_touch.max_np = np;
         // A second finger turns the sequence into a pause candidate (decided on
         // release); pts[0] can jump when fingers land/lift, so stop tracking
         // movement rather than misread the jump as a drag or flick.
-        if (max_np < 2) {
-            float dx = p.x - origin.x, dy = p.y - origin.y;
-            if (mode == 0) {
+        if (s_touch.max_np < 2) {
+            float dx = p.x - s_touch.origin.x, dy = p.y - s_touch.origin.y;
+            if (s_touch.mode == 0) {
                 float ax = dx < 0 ? -dx : dx;
-                if (ax > (float)step * 0.55f && ax > dy) mode = 1;
-                else if (dy > (float)step * 0.80f)       mode = 2;
+                if (ax > (float)step * 0.55f && ax > dy) s_touch.mode = 1;
+                else if (dy > (float)step * 0.80f)       s_touch.mode = 2;
             }
-            if (mode == 1) {
+            if (s_touch.mode == 1) {
                 // One column per cell-width of travel; anchor advances so the
                 // piece tracks the finger instead of accelerating.
-                if (p.x - anchor_x >= (float)step)      { in->right = true; anchor_x += (float)step; }
-                else if (p.x - anchor_x <= -(float)step) { in->left  = true; anchor_x -= (float)step; }
+                if (p.x - s_touch.anchor_x >= (float)step)      { in->right = true; s_touch.anchor_x += (float)step; }
+                else if (p.x - s_touch.anchor_x <= -(float)step) { in->left  = true; s_touch.anchor_x -= (float)step; }
             }
-            if (mode == 2) in->down = true; // soft drop while dragging down
-            last_dy = dy;
+            if (s_touch.mode == 2) in->down = true; // soft drop while dragging down
+            s_touch.last_dy = dy;
         }
-    } else if (active) {
+    } else if (s_touch.active) {
         // Touch ended: decide the discrete action on RELEASE. (raylib's
         // GESTURE_TAP fires on touch-DOWN, so using it here would fire a
         // rotate at the start of every drag.)
-        double dur = now - t0;
-        if (max_np >= 2) {
+        double dur = now - s_touch.t0;
+        if (s_touch.max_np >= 2) {
             // Two-finger tap: pause (back to the menu; the game stays
             // resumable). Long multi-finger contact is ignored.
             if (dur < 0.5) {
                 in->escape_pressed = true;
                 in->any_pressed = true;
             }
-        } else if (mode == 2 && dur < 0.35 && last_dy > (float)step * 1.2f &&
-            last_dy / (float)dur > (float)step * 6.0f) {
+        } else if (s_touch.mode == 2 && dur < 0.35 && s_touch.last_dy > (float)step * 1.2f &&
+            s_touch.last_dy / (float)dur > (float)step * 6.0f) {
             in->hard_drop_pressed = true; // fast downward flick (velocity-based)
             in->any_pressed = true;
-        } else if (mode == 0 && dur < 0.30) {
+        } else if (s_touch.mode == 0 && dur < 0.30) {
             // A tap: rotate. Also feeds menu select / overlay dismissal via
             // the tap fields.
             in->rotate_pressed = true;
             in->any_pressed = true;
             in->touch_tap   = true;
-            in->tap_x = last_pos.x;
-            in->tap_y = last_pos.y;
+            in->tap_x = s_touch.last_pos.x;
+            in->tap_y = s_touch.last_pos.y;
         }
-        active = false;
+        s_touch.active = false;
     }
 
     // Swipe gestures drive menu navigation (taps are decided on release, above).

@@ -1,15 +1,22 @@
-// iOS audio backend: AVAudioEngine with one player node per effect. sound.c
-// synthesizes the same short mono int16 PCM clips; here each becomes an
-// AVAudioPCMBuffer (float32) played through the engine's main mixer.
+// iOS audio backend: AVAudioEngine driving a small pool of player-node "voices".
+// sound.c synthesizes short mono int16 PCM clips, all at one shared format
+// (SFX_SAMPLE_RATE, mono); here each becomes an AVAudioPCMBuffer (float32).
+// Playback round-robins across the voice pool, so re-triggering the same effect
+// lands on a free voice and overlaps cleanly instead of truncating the previous
+// instance (a single node per effect would cut itself off). All voices share the
+// clip format, so any voice can play any buffer.
 #import <AVFoundation/AVFoundation.h>
 
 #include "audio.h"
 
 #define MAX_SOUNDS 32
+#define VOICES     8       // simultaneous playbacks; wrap-around interrupts the oldest
+#define SFX_SAMPLE_RATE 44100.0 // must match sound.c's SAMPLE_RATE (single shared format)
 
 static AVAudioEngine*     s_engine;
 static AVAudioPCMBuffer*  s_buffers[MAX_SOUNDS];
-static AVAudioPlayerNode* s_players[MAX_SOUNDS];
+static AVAudioPlayerNode* s_voices[VOICES];
+static int  s_voice_next = 0;
 static int  s_count = 0;
 static bool s_ready = false;
 
@@ -22,8 +29,20 @@ void audio_init(void) {
         [session setActive:YES error:&err];
 
         s_engine = [[AVAudioEngine alloc] init];
-        (void)s_engine.mainMixerNode; // instantiate the mixer before starting
+        AVAudioMixerNode* mixer = s_engine.mainMixerNode; // instantiate before connecting
+
+        // Wire the voice pool once, all with the shared clip format. Attaching
+        // and connecting before start() is the well-supported ordering.
+        AVAudioFormat* fmt =
+            [[AVAudioFormat alloc] initStandardFormatWithSampleRate:SFX_SAMPLE_RATE channels:1];
+        for (int i = 0; i < VOICES; i++) {
+            s_voices[i] = [[AVAudioPlayerNode alloc] init];
+            [s_engine attachNode:s_voices[i]];
+            [s_engine connect:s_voices[i] to:mixer format:fmt];
+        }
+
         s_count = 0;
+        s_voice_next = 0;
         s_ready = [s_engine startAndReturnError:&err] ? true : false;
     }
 }
@@ -47,27 +66,25 @@ AudioHandle audio_load(const int16_t* samples, int frame_count, int sample_rate)
         float* dst = buf.floatChannelData[0];
         for (int i = 0; i < frame_count; i++) dst[i] = samples[i] / 32768.0f;
 
-        AVAudioPlayerNode* player = [[AVAudioPlayerNode alloc] init];
-        [s_engine attachNode:player];
-        [s_engine connect:player to:s_engine.mainMixerNode format:fmt];
-
         s_buffers[s_count] = buf;
-        s_players[s_count] = player;
         return s_count++;
     }
 }
 
 void audio_play(AudioHandle handle) {
     if (!s_ready || handle < 0 || handle >= s_count) return;
-    AVAudioPlayerNode* p = s_players[handle];
-    // Interrupts a still-playing instance so rapid re-triggers restart cleanly.
-    [p scheduleBuffer:s_buffers[handle]
+    // Round-robin the pool: consecutive plays (even of the same effect) land on
+    // different voices and overlap. Interrupt only kicks in when the pool wraps
+    // back to a voice still playing a long clip, avoiding queued-latency buildup.
+    AVAudioPlayerNode* v = s_voices[s_voice_next];
+    s_voice_next = (s_voice_next + 1) % VOICES;
+    [v scheduleBuffer:s_buffers[handle]
                 atTime:nil
                options:AVAudioPlayerNodeBufferInterrupts
      completionHandler:nil];
-    if (!p.isPlaying) [p play];
+    if (!v.isPlaying) [v play];
 }
 
 void audio_unload(AudioHandle handle) {
-    (void)handle; // nodes/buffers released when the engine tears down at shutdown
+    (void)handle; // buffers/voices released when the engine tears down at shutdown
 }

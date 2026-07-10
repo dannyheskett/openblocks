@@ -1,6 +1,5 @@
 #include "game.h"
 #include "input.h"
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -181,32 +180,25 @@ static void score_add_lines(uint32_t* score, int lines, int level) {
     score_add(score, base[lines] * (uint32_t)(level + 1));
 }
 
+// The game is a fixed-size POD and there is only ever one instance, so a single
+// static value backs the pointer-returning API instead of a heap allocation
+// (which also removes the out-of-memory exit path). game_destroy is a no-op kept
+// for API symmetry; main.c's NULL check still distinguishes "no game yet" from a
+// live game, since the pointer is non-NULL only after game_create() is called.
 Game* game_create(void) {
-    Game* game = malloc(sizeof(Game));
-    if (game == NULL) {
-        fprintf(stderr, "openblocks: out of memory\n");
-        exit(EXIT_FAILURE);
-    }
-    memset(game, 0, sizeof(Game)); // score, board, and counters all start at zero
-    game->level = 0;
-    game->lines_cleared = 0;
-    game->game_over = false;
-    game->fall_frames = 0;
-    game->das_dir = 0;
-    game->das_counter = 0;
-    game->soft_drop = false;
-    game->events = 0;
+    static Game game;
+    memset(&game, 0, sizeof game); // score, board, counters, phase — all start at zero
 
-    game->last_piece = random_piece(-1);
-    game->next_piece = piece_create(random_piece(game->last_piece), 3, 0);
-    game->current_piece = piece_create((PieceType)game->last_piece, 3, 0);
-    game->piece_counts[game->current_piece.type]++; // count the first piece in play
+    game.last_piece = random_piece(-1);
+    game.next_piece = piece_create(random_piece(game.last_piece), 3, 0);
+    game.current_piece = piece_create((PieceType)game.last_piece, 3, 0);
+    game.piece_counts[game.current_piece.type]++; // count the first piece in play
 
-    return game;
+    return &game;
 }
 
 void game_destroy(Game* game) {
-    free(game);
+    (void)game; // static instance; nothing to free
 }
 
 static void spawn_next(Game* game) {
