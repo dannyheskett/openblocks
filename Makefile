@@ -14,7 +14,7 @@ RAYLIB_WIN32 := third_party/raylib-install-win32
 MINIH264_INC := third_party/minih264
 MINIMP4_INC  := third_party/minimp4
 
-SRC := src/main.c src/game.c src/input.c \
+SRC := src/main.c src/game.c src/tick.c src/input.c \
        src/render.c src/render_portrait.c src/render_landscape.c src/gfx_raylib.c \
        src/safe_area.c \
        src/sound.c src/audio_raylib.c \
@@ -340,7 +340,7 @@ $(WEB_OUT): $(WEB_SRC) $(wildcard src/*.h) web/shell.html | $(WEB_OUT_DIR)
 # ---------------------------------------------------------------------------
 IOS_MIN        ?= 13.0
 IOS_APP_NAME   := Openblocks
-IOS_C_SRC      := src/game.c src/main.c src/render.c src/render_portrait.c src/render_landscape.c \
+IOS_C_SRC      := src/game.c src/tick.c src/main.c src/render.c src/render_portrait.c src/render_landscape.c \
                   src/input.c src/sound.c src/recorder.c src/safe_area.c
 IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm ios/audio_ios.mm
 IOS_CFLAGS     := -std=c99   -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2

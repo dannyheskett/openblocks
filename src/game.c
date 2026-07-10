@@ -208,6 +208,17 @@ static void spawn_next(Game* game) {
     game->next_piece = piece_create(random_piece(game->last_piece), 3, 0);
 }
 
+// Spawn the next piece; if it can't be placed, the stack has reached the top and
+// the game is over. Shared by the lock path and the line-clear finish so the two
+// can't drift.
+static void spawn_or_topout(Game* game) {
+    spawn_next(game);
+    if (!can_place(game, &game->current_piece)) {
+        game->game_over = true;
+        game->events |= EV_GAMEOVER;
+    }
+}
+
 // Begin the line-clear wipe for the rows just completed. The blocks stay on the
 // board and erase over the animation; scoring and collapse happen at the end.
 static void start_clear(Game* game, int rows[4], int count) {
@@ -235,11 +246,7 @@ static void finish_clear(Game* game) {
     game->phase = PHASE_PLAY;
     game->clear_count = 0;
 
-    spawn_next(game);
-    if (!can_place(game, &game->current_piece)) {
-        game->game_over = true;
-        game->events |= EV_GAMEOVER;
-    }
+    spawn_or_topout(game);
 }
 
 // Advance the wipe: every CLEAR_STEP_FRAMES frames, erase one more column pair
@@ -279,11 +286,7 @@ static void settle_current_piece(Game* game) {
         // Play the wipe animation; collapse and spawn happen at its end.
         start_clear(game, rows, count);
     } else {
-        spawn_next(game);
-        if (!can_place(game, &game->current_piece)) {
-            game->game_over = true;
-            game->events |= EV_GAMEOVER;
-        }
+        spawn_or_topout(game);
     }
 }
 

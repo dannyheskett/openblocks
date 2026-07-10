@@ -4,6 +4,7 @@
 #include "sound.h"
 #include "recorder.h"
 #include "app.h"
+#include "tick.h"
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,12 +75,24 @@ typedef struct {
     AppState state;
     int selected;
     bool quit;
+    SimClock clock;   // fixed-timestep accumulator (only advanced while playing)
+    double prev_time; // GetTime() at the previous frame; 0 before the first frame
 } AppCtx;
 
 // One iteration of the game loop. `arg` is an AppCtx* (void* to match the
 // emscripten_set_main_loop callback signature).
 static void frame_step(void* arg) {
     AppCtx* c = (AppCtx*)arg;
+
+    // Real seconds since the previous frame, feeding the fixed-timestep
+    // accumulator so the simulation runs at 60 Hz on any display refresh. The
+    // first frame (prev_time == 0) is treated as exactly one step. The clock only
+    // banks time while actually playing; any other state drains it so a pause or
+    // menu can't hoard a burst of catch-up steps for the moment play resumes.
+    double now = GetTime();
+    double dt = (c->prev_time > 0.0) ? now - c->prev_time : SIM_DT;
+    c->prev_time = now;
+    if (c->state != STATE_PLAYING) sim_clock_reset(&c->clock);
 
     Input in = input_poll();
     if (in.fullscreen_toggle) render_toggle_fullscreen();
@@ -156,11 +169,32 @@ static void frame_step(void* arg) {
             c->state = STATE_PAUSED;
             sound_play(SFX_PAUSE);
         } else {
-            game_handle_held(c->game, in.left, in.right, in.down);
-            if (in.rotate_pressed) game_input(c->game, INPUT_ROTATE);
-            if (in.hard_drop_pressed) game_input(c->game, INPUT_HARD_DROP);
-            game_update(c->game);
-            play_event_sounds(c->game->events);
+            // Run the number of fixed 60 Hz steps that have elapsed. game_handle_held
+            // clears the event flags each step, so OR them into frame_events to keep
+            // every sound when a frame runs more than one step.
+            unsigned frame_events = 0;
+            int steps = sim_clock_advance(&c->clock, dt);
+            bool applied_edge = false;
+            for (int s = 0; s < steps; s++) {
+                game_handle_held(c->game, in.left, in.right, in.down);
+                // Discrete actions apply exactly once, on the first step, preserving
+                // the per-frame order held-move -> rotate -> hard-drop -> gravity.
+                if (!applied_edge) {
+                    if (in.rotate_pressed)    game_input(c->game, INPUT_ROTATE);
+                    if (in.hard_drop_pressed) game_input(c->game, INPUT_HARD_DROP);
+                    applied_edge = true;
+                }
+                game_update(c->game);
+                frame_events |= c->game->events;
+            }
+            // A frame that ran no step (a display faster than 60 Hz) still applies
+            // the press immediately, so input is never dropped; gravity catches up
+            // on the next stepped frame.
+            if (!applied_edge) {
+                if (in.rotate_pressed)    { game_input(c->game, INPUT_ROTATE);    frame_events |= c->game->events; }
+                if (in.hard_drop_pressed) { game_input(c->game, INPUT_HARD_DROP); frame_events |= c->game->events; }
+            }
+            play_event_sounds(frame_events);
             if (game_is_over(c->game)) c->state = STATE_GAMEOVER;
         }
         break;
@@ -209,6 +243,8 @@ void ob_app_init(void) {
     ios_ctx.state = STATE_MENU;
     ios_ctx.selected = 0;
     ios_ctx.quit = false;
+    sim_clock_reset(&ios_ctx.clock);
+    ios_ctx.prev_time = 0.0;
 }
 
 void ob_app_frame(void) { frame_step(&ios_ctx); }
@@ -250,6 +286,8 @@ int main(int argc, char** argv) {
     ctx.state = STATE_MENU;
     ctx.selected = 0;
     ctx.quit = false;
+    sim_clock_reset(&ctx.clock);
+    ctx.prev_time = 0.0;
 
 #ifdef PLATFORM_WEB
     // Browsers drive the loop via a per-frame callback; with the infinite-loop
