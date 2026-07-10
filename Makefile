@@ -195,8 +195,10 @@ JAVAC            ?= javac
 
 android: $(ANDROID_APK)
 
+# native_app_glue is vendored NDK source (not ours); it trips -Wextra's
+# unused-parameter, so build this one object without it to keep the log clean.
 $(ANDROID_OBJ_DIR)/native_app_glue.o: $(NATIVE_APP_GLUE)/android_native_app_glue.c | $(ANDROID_OBJ_DIR)
-	$(ANDROID_CC) $(ANDROID_CFLAGS) -c $< -o $@
+	$(ANDROID_CC) $(ANDROID_CFLAGS) -Wno-unused-parameter -c $< -o $@
 
 $(ANDROID_OBJ_DIR)/%.o: src/%.c | $(ANDROID_OBJ_DIR)
 	$(ANDROID_CC) $(ANDROID_CFLAGS) -MMD -MP -c $< -o $@

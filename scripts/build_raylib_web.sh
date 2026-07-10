@@ -39,6 +39,7 @@ make -C "$RAYLIB_SRC_DIR/src" clean
 make -C "$RAYLIB_SRC_DIR/src" \
     PLATFORM=PLATFORM_WEB \
     GRAPHICS=GRAPHICS_API_OPENGL_ES2 \
+    CUSTOM_CFLAGS=-w \
     -j"$(nproc)"
 
 mkdir -p "$INSTALL_DIR/include" "$INSTALL_DIR/lib"

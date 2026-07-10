@@ -54,6 +54,7 @@ for arch in $ANDROID_ARCHES; do
         ANDROID_NDK="$ANDROID_NDK" \
         ANDROID_ARCH="$arch" \
         ANDROID_API_VERSION="$ANDROID_API" \
+        CUSTOM_CFLAGS=-w \
         -j"$(nproc)"
 
     dest="$INSTALL_DIR/$abi"

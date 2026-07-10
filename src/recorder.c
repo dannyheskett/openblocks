@@ -13,8 +13,16 @@
 // bottom of the file.
 #ifndef OB_TOUCH
 
-#include "minih264e.h"  // declarations only (implementation is in encode_h264.c)
-#include "minimp4.h"    // declarations only (implementation is in encode_mux.c)
+// Declarations only (implementations live in encode_h264.c / encode_mux.c). The
+// vendored headers trip a clang-only typedef-redefinition warning under -std=c99;
+// suppress it so the project's own code stays warning-clean.
+#pragma GCC diagnostic push
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wtypedef-redefinition"
+#endif
+#include "minih264e.h"
+#include "minimp4.h"
+#pragma GCC diagnostic pop
 
 #include <stdio.h>
 #include <stdlib.h>

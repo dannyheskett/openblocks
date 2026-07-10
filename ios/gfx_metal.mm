@@ -93,7 +93,7 @@ static void build_font_atlas(void) {
 // Glyph index for a codepoint, falling back to '?' then 0.
 static int glyph_of(int cp) {
     int gi = (cp >= 0 && cp < 256) ? s_glyph_index[cp] : -1;
-    if (gi < 0) gi = s_glyph_index['?'];
+    if (gi < 0) gi = s_glyph_index[(unsigned char)'?'];
     if (gi < 0) gi = 0;
     return gi;
 }

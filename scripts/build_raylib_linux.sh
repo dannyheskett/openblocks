@@ -22,9 +22,13 @@ fi
 # Static archive only; PLATFORM_DESKTOP_GLFW is the standard Linux desktop
 # target. No shared lib, examples, or extras — the game links libraylib.a.
 make -C "$RAYLIB_SRC_DIR/src" clean
+# CUSTOM_CFLAGS=-w silences raylib's own build warnings (its bundled stb_vorbis,
+# jar_mod, etc.). -w only suppresses diagnostics — it never changes codegen or
+# breaks the build — and keeps openblocks' CI log free of dependency noise.
 make -C "$RAYLIB_SRC_DIR/src" \
     PLATFORM=PLATFORM_DESKTOP_GLFW \
     RAYLIB_LIBTYPE=STATIC \
+    CUSTOM_CFLAGS=-w \
     -j"$(nproc)"
 
 mkdir -p "$INSTALL_DIR/include" "$INSTALL_DIR/lib"

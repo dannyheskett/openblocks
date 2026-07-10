@@ -29,7 +29,7 @@ build_arch() {
     make -C "$RAYLIB_SRC_DIR/src" \
         PLATFORM=PLATFORM_DESKTOP_GLFW \
         RAYLIB_LIBTYPE=STATIC \
-        CUSTOM_CFLAGS="-arch $arch" \
+        CUSTOM_CFLAGS="-arch $arch -w" \
         -j"$(sysctl -n hw.ncpu)"
     cp "$RAYLIB_SRC_DIR/src/libraylib.a" "$ARCH_DIR/$arch/libraylib.a"
 }

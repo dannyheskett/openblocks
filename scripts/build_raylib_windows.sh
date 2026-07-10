@@ -30,6 +30,7 @@ build_win() {
         CC="$cc" \
         AR="$ar" \
         RAYLIB_LIBTYPE=STATIC \
+        CUSTOM_CFLAGS=-w \
         -j"$(nproc)"
     mkdir -p "$dir/include" "$dir/lib"
     cp "$RAYLIB_SRC_DIR/src/raylib.h" \

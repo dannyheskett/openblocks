@@ -62,7 +62,7 @@ static AudioHandle make_noise(float dur, float vol) {
     float hold = 0.0f;
     for (int i = 0; i < n; i++) {
         if (i % 8 == 0) { // sample-and-hold gives a grittier, lower-rate hiss
-            hold = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            hold = ((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f;
         }
         float env = 1.0f - (float)i / n;
         buf[i] = (int16_t)(hold * vol * env * 32767.0f);

@@ -11,6 +11,10 @@
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #pragma GCC diagnostic ignored "-Wimplicit-function-declaration"
 #pragma GCC diagnostic ignored "-Wint-conversion"
+#if defined(__clang__)
+// clang-only: the header redefines MP4E_mux_t (a no-op under C11, warned under c99).
+#pragma clang diagnostic ignored "-Wtypedef-redefinition"
+#endif
 
 #define MINIMP4_IMPLEMENTATION
 #include "minimp4.h"

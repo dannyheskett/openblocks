@@ -11,6 +11,7 @@
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #pragma GCC diagnostic ignored "-Wimplicit-function-declaration"
 #pragma GCC diagnostic ignored "-Wint-conversion"
+#pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
 
 #define MINIH264_IMPLEMENTATION
 #include "minih264e.h"
