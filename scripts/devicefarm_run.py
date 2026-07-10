@@ -8,14 +8,25 @@ taps) validates that the app launches and runs without crashing on a real
 device. The platform (Android vs iOS) is inferred from the app file extension;
 the unsigned iOS .ipa works because Device Farm re-signs apps on upload.
 
+A second mode validates the fixed-timestep engine on real hardware: an app
+built with SIMSTATS=1 (autoplay + per-second frames/steps logging) is run with
+a gentle fuzz, then the device logcat is parsed and the run fails unless the
+simulation held ~60 steps/s at whatever refresh rate the display delivered.
+Pick a 120 Hz device (DEVICEFARM_DEVICE_MODEL) to exercise the high-refresh
+path; the report states the render rate actually observed either way.
+
 Config via env (no ARNs are hard-coded, so this file is safe to commit):
-  DEVICEFARM_PROJECT_ARN   required  the Device Farm project ARN
-  APP_PATH                 required  path to the .apk or .ipa to test
-  DEVICEFARM_UPLOAD_ONLY   optional  "1" to stop after upload (free; no devices)
-  DEVICEFARM_MAX_DEVICES   optional  device count for the run (default 1)
-  AWS_REGION               optional  defaults to us-west-2
+  DEVICEFARM_PROJECT_ARN     required  the Device Farm project ARN
+  APP_PATH                   required  path to the .apk or .ipa to test
+  DEVICEFARM_UPLOAD_ONLY     optional  "1" to stop after upload (free; no devices)
+  DEVICEFARM_MAX_DEVICES     optional  device count for the run (default 1)
+  DEVICEFARM_DEVICE_MODEL    optional  MODEL substring filter, e.g. "Galaxy S23"
+  DEVICEFARM_CHECK_SIMSTATS  optional  "1" to assert SIMSTATS logcat lines
+                                       (Android; requires a SIMSTATS=1 build)
+  AWS_REGION                 optional  defaults to us-west-2
 """
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -27,6 +38,8 @@ PROJECT = os.environ["DEVICEFARM_PROJECT_ARN"]
 APP_PATH = os.environ["APP_PATH"]
 UPLOAD_ONLY = os.environ.get("DEVICEFARM_UPLOAD_ONLY") == "1"
 MAX_DEVICES = int(os.environ.get("DEVICEFARM_MAX_DEVICES", "1"))
+DEVICE_MODEL = os.environ.get("DEVICEFARM_DEVICE_MODEL", "").strip()
+CHECK_SIMSTATS = os.environ.get("DEVICEFARM_CHECK_SIMSTATS") == "1"
 
 if APP_PATH.endswith(".apk"):
     PLATFORM, UPLOAD_TYPE = "ANDROID", "ANDROID_APP"
@@ -72,6 +85,53 @@ def download_media_artifacts(run_arn, out_dir):
     print(f"downloaded {n} media artifact(s) to {out_dir}", flush=True)
 
 
+# One line per second of continuous play, from the SIMSTATS=1 app build
+# (src/main.c simstats_count): total window span, rendered frames, sim steps.
+SIMSTATS_RE = re.compile(r"SIMSTATS window=([0-9.]+) frames=(\d+) steps=(\d+)")
+
+
+def check_simstats(run_arn):
+    """Pull the device logs and assert the fixed-timestep engine held ~60 sim
+    steps/s during continuous play, whatever the display's actual refresh rate.
+    The rendered-frame rate is reported so the run states whether it really
+    exercised a high-refresh (>60 Hz) display or should be retried on one."""
+    windows = []  # (steps_per_sec, frames_per_sec) per logged play window
+    for job in df.list_jobs(arn=run_arn)["jobs"]:
+        for suite in df.list_suites(arn=job["arn"])["suites"]:
+            for test in df.list_tests(arn=suite["arn"])["tests"]:
+                for a in df.list_artifacts(arn=test["arn"], type="LOG")["artifacts"]:
+                    if a["type"] != "DEVICE_LOG":
+                        continue
+                    text = urllib.request.urlopen(a["url"]).read().decode("utf-8", "replace")
+                    for m in SIMSTATS_RE.finditer(text):
+                        span = float(m.group(1))
+                        windows.append((int(m.group(3)) / span, int(m.group(2)) / span))
+    if len(windows) < 10:
+        sys.exit(f"SIMSTATS: only {len(windows)} play window(s) found in the device "
+                 "log (need >= 10) — was the app built with SIMSTATS=1?")
+
+    sps = sorted(w[0] for w in windows)
+    fps = sorted(w[1] for w in windows)
+    median_sps, median_fps = sps[len(sps) // 2], fps[len(fps) // 2]
+    # Per-window tolerance is loose (±10%): a window may straddle a dropped
+    # backlog (tick.c's spiral clamp) or a scheduler hiccup. The median must be
+    # tight around 60.
+    within = sum(1 for s in sps if 54.0 <= s <= 66.0)
+    print(f"SIMSTATS: {len(windows)} play windows; sim {median_sps:.1f} steps/s median "
+          f"(min {sps[0]:.1f}, max {sps[-1]:.1f}); render {median_fps:.1f} fps median "
+          f"(max {fps[-1]:.1f})", flush=True)
+    if median_fps > 90.0:
+        print("SIMSTATS: high-refresh display exercised (>90 fps rendered)", flush=True)
+    else:
+        print("SIMSTATS: NOTE — device rendered <= 90 fps, so this run did not "
+              "exercise the high-refresh path; retry with DEVICEFARM_DEVICE_MODEL "
+              "set to a 120 Hz phone (e.g. 'Galaxy S23' or 'Pixel 8')", flush=True)
+    if not (57.0 <= median_sps <= 63.0) or within < 0.8 * len(windows):
+        sys.exit(f"SIMSTATS FAIL: simulation rate drifted from 60 steps/s "
+                 f"(median {median_sps:.2f}; {within}/{len(windows)} windows within ±10%)")
+    print("SIMSTATS PASS: simulation held ~60 steps/s", flush=True)
+
+
 def main():
     # 1) Register an upload slot and PUT the app to the presigned URL.
     up = df.create_upload(
@@ -102,16 +162,28 @@ def main():
         return
 
     # 3) Schedule a Fuzz run on real device(s) of the matching platform.
+    filters = [
+        {"attribute": "PLATFORM", "operator": "EQUALS", "values": [PLATFORM]},
+        {"attribute": "AVAILABILITY", "operator": "EQUALS", "values": ["HIGHLY_AVAILABLE"]},
+    ]
+    if DEVICE_MODEL:
+        # e.g. "Galaxy S23" / "Pixel 8" — lets the simstats mode target a
+        # 120 Hz panel instead of whatever device happens to be free.
+        filters.append({"attribute": "MODEL", "operator": "CONTAINS", "values": [DEVICE_MODEL]})
+
+    test_spec = {"type": "BUILTIN_FUZZ"}
+    if CHECK_SIMSTATS:
+        # Measurement runs want mostly-uninterrupted autoplay, not a tap storm:
+        # one fuzz event per second for ~4 minutes of gameplay to sample.
+        test_spec["parameters"] = {"event_count": "250", "throttle": "1000"}
+
     run = df.schedule_run(
         projectArn=PROJECT,
         appArn=up["arn"],
         name=f"openblocks CI fuzz ({PLATFORM})",
-        test={"type": "BUILTIN_FUZZ"},
+        test=test_spec,
         deviceSelectionConfiguration={
-            "filters": [
-                {"attribute": "PLATFORM", "operator": "EQUALS", "values": [PLATFORM]},
-                {"attribute": "AVAILABILITY", "operator": "EQUALS", "values": ["HIGHLY_AVAILABLE"]},
-            ],
+            "filters": filters,
             "maxDevices": MAX_DEVICES,
         },
     )["run"]
@@ -132,6 +204,9 @@ def main():
 
     if run["result"] != "PASSED":
         sys.exit(f"Device Farm run did not pass: {run['result']}")
+
+    if CHECK_SIMSTATS:
+        check_simstats(run["arn"])
 
 
 if __name__ == "__main__":

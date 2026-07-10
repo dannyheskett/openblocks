@@ -17,6 +17,14 @@ on:
         description: "Number of real devices to fuzz-test on (per platform)"
         default: "1"
         required: false
+      simstats:
+        description: "High-refresh sim-rate check: SIMSTATS autoplay build + logcat assertions (Android only)"
+        type: boolean
+        default: false
+      device_model:
+        description: "Device MODEL filter, e.g. 'Galaxy S23' (pick a 120 Hz phone for simstats)"
+        default: ""
+        required: false
 
 permissions:
   id-token: write   # mint the OIDC token to assume the AWS role
@@ -49,9 +57,12 @@ jobs:
         run: ./scripts/build_raylib_android.sh
       - name: Build APK
         run: |
+          # simstats runs use the SIMSTATS=1 build: autoplay + per-second
+          # frames/steps logcat lines that devicefarm_run.py asserts against.
           make android \
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
-            ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
+            ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}" \
+            SIMSTATS="${{ inputs.simstats && '1' || '' }}"
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -63,6 +74,8 @@ jobs:
           APP_PATH: build/openblocks.apk
           DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
           DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
+          DEVICEFARM_CHECK_SIMSTATS: ${{ inputs.simstats && '1' || '' }}
+          DEVICEFARM_DEVICE_MODEL: ${{ inputs.device_model }}
         run: |
           # venv: macOS runners' Homebrew python rejects bare pip installs (PEP 668)
           python3 -m venv "$RUNNER_TEMP/df-venv"
@@ -95,6 +108,7 @@ jobs:
           APP_PATH: build/openblocks.ipa
           DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
           DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
+          DEVICEFARM_DEVICE_MODEL: ${{ inputs.device_model }}
         run: |
           # venv: macOS runners' Homebrew python rejects bare pip installs (PEP 668)
           python3 -m venv "$RUNNER_TEMP/df-venv"

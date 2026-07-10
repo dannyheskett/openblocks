@@ -161,6 +161,14 @@ ANDROID_JAR    := $(ANDROID_SDK_ROOT)/platforms/android-$(ANDROID_PLATFORM_VER)/
 ANDROID_SRC     := $(filter-out src/encode_h264.c src/encode_mux.c,$(SRC))
 ANDROID_CFLAGS  := -std=c99 -Wall -Wextra -Isrc -DPLATFORM_ANDROID -fPIC \
                    -I$(RAYLIB_ANDROID)/include -I$(NATIVE_APP_GLUE)
+
+# SIMSTATS=1 builds the high-refresh validation APK: it boots straight into
+# autoplay (no menu) and logs a SIMSTATS frames/steps line to logcat for each
+# second of continuous play, which scripts/devicefarm_run.py asserts against
+# (DEVICEFARM_CHECK_SIMSTATS=1) on a real device. Never used for release builds.
+ifeq ($(SIMSTATS),1)
+ANDROID_CFLAGS += -DOB_SIMSTATS -DOB_AUTOPLAY
+endif
 # raylib wraps fopen at link time (-Wl,--wrap=fopen) so file access routes
 # through the Android asset manager; libraylib.a references __real_fopen, which
 # only exists when this flag is present. Without it, dlopen of libopenblocks.so
@@ -175,7 +183,13 @@ ANDROID_LDFLAGS := -shared -L$(RAYLIB_ANDROID)/lib -lraylib \
                    -Wl,-z,max-page-size=16384,-z,common-page-size=16384 \
                    -llog -landroid -lEGL -lGLESv2 -lOpenSLES -lm -lc -ldl
 
+# Separate object dir for SIMSTATS builds so the -D flags never mix with a
+# normal build's objects across incremental compiles.
+ifeq ($(SIMSTATS),1)
+ANDROID_OBJ_DIR := build/obj-android-simstats
+else
 ANDROID_OBJ_DIR := build/obj-android
+endif
 ANDROID_OBJ     := $(ANDROID_SRC:src/%.c=$(ANDROID_OBJ_DIR)/%.o) \
                    $(ANDROID_OBJ_DIR)/native_app_glue.o
 
@@ -392,16 +406,26 @@ dist-ios: $(IOS_IPA)
 	cp $(IOS_IPA) $(DIST)/openblocks-$(VERSION_SLUG)-ios-arm64.ipa
 
 # ---------------------------------------------------------------------------
-# Unit tests (game logic only — no raylib/window needed). The test TU includes
-# game.c directly to reach its file-static helpers.
+# Unit tests (no raylib/window needed). Each test TU includes the sources under
+# test directly to reach their file-static helpers and state.
+#   test_game  — game.c + tick.c (simulation, scoring, fixed-timestep clock)
+#   test_input — input.c's touch-gesture recognizer, compiled -DPLATFORM_IOS:
+#                the raylib-free configuration input.c already supports, so the
+#                test can supply a scripted touch/clock surface. The recognizer
+#                is the same C every touch platform compiles.
 # ---------------------------------------------------------------------------
-TEST_BIN := build/test_game
+TEST_BIN       := build/test_game
+TEST_INPUT_BIN := build/test_input
 
-test: $(TEST_BIN)
+test: $(TEST_BIN) $(TEST_INPUT_BIN)
 	./$(TEST_BIN)
+	./$(TEST_INPUT_BIN)
 
 $(TEST_BIN): tests/test_game.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c -o $(TEST_BIN)
+
+$(TEST_INPUT_BIN): tests/test_input.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -O0 -g -DPLATFORM_IOS tests/test_input.c -o $(TEST_INPUT_BIN)
 
 # ---------------------------------------------------------------------------
 # Distribution archives. Each dist-<platform> stages the platform binary plus

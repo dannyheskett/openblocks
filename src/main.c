@@ -68,6 +68,44 @@ static int build_menu(bool resumable, const char* labels[], MenuAction actions[]
     return n;
 }
 
+#ifdef OB_SIMSTATS
+// Real-device validation instrumentation (SIMSTATS=1 builds; compiles on
+// desktop too for local smoke tests). Once per second of continuous play, log
+// how many frames were rendered vs how many fixed 60 Hz sim steps ran, so
+// scripts/devicefarm_run.py can assert from the device log that the
+// fixed-timestep accumulator holds ~60 steps/s at whatever refresh rate the
+// display actually delivers (the frames count is the evidence of that rate).
+// Any gap between calls (menu, pause, a stall past the spiral clamp) starts a
+// fresh window, so every logged line covers uninterrupted play.
+#if defined(PLATFORM_ANDROID)
+#include <android/log.h>
+#define SIMSTATS_LOG(...) __android_log_print(ANDROID_LOG_INFO, "openblocks", __VA_ARGS__)
+#else
+#include <stdio.h>
+#define SIMSTATS_LOG(...) do { printf(__VA_ARGS__); printf("\n"); fflush(stdout); } while (0)
+#endif
+
+static void simstats_count(double now, int steps) {
+    static double win_start, last_call;
+    static int frames, sim_steps;
+    if (last_call == 0.0 || now - last_call > 0.25) { // gap: not continuous play
+        win_start = now;
+        frames = 0;
+        sim_steps = 0;
+    }
+    last_call = now;
+    frames++;
+    sim_steps += steps;
+    double span = now - win_start;
+    if (span >= 1.0) {
+        SIMSTATS_LOG("SIMSTATS window=%.3f frames=%d steps=%d", span, frames, sim_steps);
+        win_start = now;
+        frames = 0;
+        sim_steps = 0;
+    }
+}
+#endif // OB_SIMSTATS
+
 // App state carried across frames. Kept in one struct so the web build can drive
 // the loop from an emscripten per-frame callback (browsers can't block).
 typedef struct {
@@ -174,6 +212,9 @@ static void frame_step(void* arg) {
             // every sound when a frame runs more than one step.
             unsigned frame_events = 0;
             int steps = sim_clock_advance(&c->clock, dt);
+#ifdef OB_SIMSTATS
+            simstats_count(now, steps);
+#endif
             bool applied_edge = false;
             for (int s = 0; s < steps; s++) {
                 game_handle_held(c->game, in.left, in.right, in.down);
@@ -209,11 +250,19 @@ static void frame_step(void* arg) {
         break;
 
     case STATE_GAMEOVER:
+#ifdef OB_AUTOPLAY
+        // Validation builds restart immediately so an unattended device run
+        // measures play for its whole duration (gravity plays the game solo).
+        c->game = game_create();
+        c->state = STATE_PLAYING;
+        break;
+#else
         if (in.escape_pressed || (in.any_pressed && !in.fullscreen_toggle)) {
             c->state = STATE_MENU;
             c->selected = 0;
         }
         break;
+#endif
     }
 
     // Render for the current state.
@@ -245,6 +294,10 @@ void ob_app_init(void) {
     ios_ctx.quit = false;
     sim_clock_reset(&ios_ctx.clock);
     ios_ctx.prev_time = 0.0;
+#ifdef OB_AUTOPLAY
+    ios_ctx.game = game_create();
+    ios_ctx.state = STATE_PLAYING;
+#endif
 }
 
 void ob_app_frame(void) { frame_step(&ios_ctx); }
@@ -288,6 +341,12 @@ int main(int argc, char** argv) {
     ctx.quit = false;
     sim_clock_reset(&ctx.clock);
     ctx.prev_time = 0.0;
+#ifdef OB_AUTOPLAY
+    // Validation builds skip the menu and start playing at boot (see SIMSTATS
+    // in the Makefile); gravity alone keeps the simulation running.
+    ctx.game = game_create();
+    ctx.state = STATE_PLAYING;
+#endif
 
 #ifdef PLATFORM_WEB
     // Browsers drive the loop via a per-frame callback; with the infinite-loop

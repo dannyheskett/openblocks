@@ -4,10 +4,12 @@ import android.app.NativeActivity;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Display;
 import android.view.DisplayCutout;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.WindowManager;
 
 /**
  * NativeActivity subclass whose only job is to make the game truly immersive:
@@ -43,6 +45,7 @@ public class OpenblocksActivity extends NativeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         goImmersive();
+        preferHighestRefreshRate();
         // Re-read the cutout whenever the window insets settle (first layout,
         // rotation, foldables) and forward it to native.
         getWindow().getDecorView().setOnApplyWindowInsetsListener((v, insets) -> {
@@ -85,6 +88,35 @@ public class OpenblocksActivity extends NativeActivity {
             nativeSetSafeInsets(top, left, right);
         } catch (Throwable t) {
             // Fall back to the plain centered wordmark (native keeps zeros).
+        }
+    }
+
+    // Ask for the display's fastest mode at its current resolution. Many phones
+    // otherwise serve apps 60 Hz even on a 120 Hz panel. The simulation stays a
+    // fixed 60 steps/s regardless (src/tick.c); a faster display only makes
+    // rendering and input smoother. No-op on 60 Hz panels. (Display.Mode is
+    // API 23; minSdk is 24. getDefaultDisplay is deprecated in API 30, but its
+    // successor needs an attached-display Context minSdk 24 doesn't have.)
+    @SuppressWarnings("deprecation")
+    private void preferHighestRefreshRate() {
+        try {
+            Display display = getWindowManager().getDefaultDisplay();
+            Display.Mode active = display.getMode();
+            Display.Mode best = active;
+            for (Display.Mode m : display.getSupportedModes()) {
+                if (m.getPhysicalWidth() == active.getPhysicalWidth()
+                        && m.getPhysicalHeight() == active.getPhysicalHeight()
+                        && m.getRefreshRate() > best.getRefreshRate()) {
+                    best = m;
+                }
+            }
+            if (best.getModeId() != active.getModeId()) {
+                WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.preferredDisplayModeId = best.getModeId();
+                getWindow().setAttributes(lp);
+            }
+        } catch (Throwable t) {
+            // Refresh-rate selection is best-effort; never crash the game.
         }
     }
 

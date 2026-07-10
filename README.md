@@ -113,12 +113,21 @@ Serve `build/web` over HTTP (not `file://`) and open `openblocks.html`.
 
 ## Tests
 
-Game-logic unit tests (scoring, gravity, line detection/collapse) with no raylib
-or window required:
+Unit tests with no raylib or window required — the game simulation (scoring,
+gravity, line clears, DAS, the fixed-timestep clock) and the touch-gesture
+recognizer (tap/drag/flick/two-finger, driven frame-by-frame through a scripted
+touch surface):
 
 ```bash
 make test
 ```
+
+There is also a real-device engine check: `make android SIMSTATS=1` builds an
+APK that boots straight into autoplay and logs rendered-frames vs sim-steps
+once per second; the manual [`devicefarm`](.github/workflows/devicefarm.yml)
+workflow (with `simstats` enabled and a 120 Hz `device_model`) runs it on AWS
+Device Farm and fails unless the simulation held ~60 steps/s at the display's
+real refresh rate.
 
 ## Continuous integration and releases
 
