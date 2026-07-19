@@ -342,6 +342,12 @@ $(WEB_OUT): $(WEB_SRC) $(wildcard src/*.h) web/shell.html | $(WEB_OUT_DIR)
 	emcc $(WEB_CFLAGS) $(WEB_SRC) -o $@ $(WEB_LDFLAGS)
 	@echo "[web] built $@"
 
+# Serve the built game locally. Browsers refuse to fetch the .wasm over
+# file://, so a real HTTP server is required to run it at all.
+web-serve: $(WEB_OUT)
+	@echo "Openblocks: http://localhost:8080/openblocks.html"
+	@cd $(WEB_OUT_DIR) && python3 -m http.server 8080
+
 # ---------------------------------------------------------------------------
 # iOS (native Metal, no raylib). CI-only: needs Xcode on a macOS runner. The
 # shared game TUs compile -DPLATFORM_IOS (portrait touch renderer, no raylib);
@@ -490,4 +496,4 @@ clean:
 # Pull in auto-generated header dependencies (ignored if not yet present).
 -include $(OBJ:.o=.d) $(REL_OBJ:.o=.d) $(WIN64_OBJ:.o=.d) $(WIN32_OBJ:.o=.d) $(MAC_OBJ:.o=.d)
 
-.PHONY: all run release run-release windows mac test dist dist-linux dist-windows dist-mac clean
+.PHONY: all run release run-release windows mac web web-serve test dist dist-linux dist-windows dist-mac dist-web clean
