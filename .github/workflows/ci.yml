@@ -1,30 +1,39 @@
 name: ci
 
-# Runs on every PR targeting main. Each job rebuilds raylib 6.0 from source for
-# its platform (the install dirs are gitignored), then builds openblocks:
-#   - linux:   native gcc, dev (-O2) + release (-O3)
+# Runs on every pull request targeting main. Each job rebuilds raylib from source for its
+# platform (the install dirs are gitignored), then builds openblocks:
+#   - linux:   native gcc, unit tests, dev (-O2) + release (-O3)
 #   - windows: mingw-w64 cross-compile, x64 + x86
 #   - mac:     clang universal binary, arm64 + x86_64
-#   - android: NDK cross-compile, NativeActivity APK (arm64-v8a), uploaded
-#   - web:     Emscripten WASM build (mobile touch UI + keyboard), uploaded
-# Doc-only changes skip CI. Pushes to main do nothing; merges go through PRs.
+#   - web:     Emscripten WASM build, uploaded as an artifact
+#   - android: NDK cross-compile, NativeActivity APK + Play AAB packaging check
+#   - ios:     native Metal app, Simulator smoke test + unsigned device .ipa
+#
+# Branch protection requires every job here to pass before a PR can merge, and every merge
+# to main cuts a release, so this is the gate that keeps main releasable.
+#
+# There is deliberately NO paths-ignore. A workflow that never triggers never reports a
+# status, and a required check that never reports blocks the PR forever -- a docs-only PR
+# would hang instead of merging. Running the full matrix on a README change wastes a few
+# runner minutes; the deadlock wastes an afternoon. release.yml still skips docs-only
+# pushes, so they cut no release.
+#
+# For the same reason, do NOT put [skip ci] in a commit destined for a PR: GitHub skips the
+# whole run, the required checks never report, and the PR cannot be merged.
 
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '.editorconfig'
-      - 'LICENSE'
-      - 'NOTICE'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Job ids are the branch-protection check names -- these jobs carry no `name:` precisely so
+# the check name stays short and stable. Renaming a job silently breaks protection, because
+# a required check that no longer reports blocks every PR.
 jobs:
   linux:
-    name: linux (build)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -42,22 +51,26 @@ jobs:
         run: make all release
 
   windows:
-    name: windows cross-compile (x64 + x86)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
-      - name: Install mingw-w64
+      - name: Install mingw cross-toolchain
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
+          # C99 cross-compile only: the two mingw C compilers + binutils directly. The
+          # `mingw-w64` metapackage pulls the whole g++ toolchain (both arches x
+          # posix/win32) + perl -- 39 packages / 241 MB, none of which this build uses.
+          # binutils-mingw-w64 supplies the *-ar that build_raylib_windows.sh invokes.
           sudo apt-get install -y --no-install-recommends \
-            mingw-w64 mingw-w64-tools binutils-mingw-w64
+            gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 binutils-mingw-w64
       - name: Build raylib (mingw win64 + win32)
         run: ./scripts/build_raylib_windows.sh
       - name: Cross-compile Win64 + Win32
         run: make windows
 
   mac:
-    name: macOS universal build
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -66,8 +79,23 @@ jobs:
       - name: Build universal binary
         run: make mac
 
+  web:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+      - name: Build raylib (web)
+        run: ./scripts/build_raylib_web.sh
+      - name: Build WASM
+        run: make web
+      - name: Upload web build
+        uses: actions/upload-artifact@v7
+        with:
+          name: openblocks-web
+          path: build/web
+
   android:
-    name: android (NativeActivity APK)
     runs-on: ubuntu-22.04
     env:
       NDK_VERSION: "26.3.11579264"
@@ -94,9 +122,9 @@ jobs:
           make android \
             ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
             ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}"
-      # Validate the Play packaging pipeline (aapt2 + bundletool) on every PR,
-      # debug-signed. Proves the .aab builds without needing the real upload key;
-      # the release job swaps in the upload keystore when the secret is set.
+      # Validate the Play packaging pipeline (aapt2 + bundletool) on every PR, debug-signed.
+      # Proves the .aab builds without needing the real upload key; the release job swaps in
+      # the upload keystore when the secret is set.
       - name: Build AAB (Play packaging check, debug-signed)
         run: |
           make android-play \
@@ -108,25 +136,7 @@ jobs:
           name: openblocks-apk
           path: build/openblocks.apk
 
-  web:
-    name: web (WASM via Emscripten)
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@v16
-      - name: Build raylib (web)
-        run: ./scripts/build_raylib_web.sh
-      - name: Build WASM
-        run: make web
-      - name: Upload web build
-        uses: actions/upload-artifact@v7
-        with:
-          name: openblocks-web
-          path: build/web
-
   ios:
-    name: ios (Metal, Simulator)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -149,7 +159,7 @@ jobs:
         with:
           name: ios-sim-screenshot
           path: ios-shot.png
-      - name: Build device .ipa (unsigned — AWS Device Farm re-signs)
+      - name: Build device .ipa (unsigned -- AWS Device Farm re-signs)
         run: make ios
       - name: Upload device .ipa
         uses: actions/upload-artifact@v7
