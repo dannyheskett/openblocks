@@ -1,9 +1,6 @@
 name: devicefarm
 
-# Manually-triggered real-device smoke test. Builds the app (same as the ci
-# jobs) and runs an AWS Device Farm Fuzz test on a real device to confirm
-# openblocks launches and runs without crashing. Manual-only so device minutes
-# are spent deliberately. Auth is via GitHub OIDC — no stored AWS keys.
+# Thin caller. All logic lives in dannyheskett/.github.
 on:
   workflow_dispatch:
     inputs:
@@ -12,112 +9,27 @@ on:
         type: choice
         options: [both, android, ios]
         default: both
-        required: true
       max_devices:
         description: "Number of real devices to fuzz-test on (per platform)"
         default: "1"
-        required: false
       simstats:
-        description: "High-refresh sim-rate check: SIMSTATS autoplay build + logcat assertions (Android only)"
+        description: "High-refresh sim-rate check (Android only)"
         type: boolean
         default: false
       device_model:
-        description: "Device MODEL filter, e.g. 'Galaxy S23' (pick a 120 Hz phone for simstats)"
+        description: "Device MODEL filter, e.g. 'Galaxy S23'"
         default: ""
-        required: false
 
 permissions:
-  id-token: write   # mint the OIDC token to assume the AWS role
+  id-token: write
   contents: read
 
 jobs:
-  android:
-    name: build APK + Device Farm fuzz (Android)
-    if: inputs.platform == 'android' || inputs.platform == 'both'
-    runs-on: ubuntu-22.04
-    env:
-      NDK_VERSION: "26.3.11579264"
-      ANDROID_BUILD_TOOLS: "35.0.0"
-      ANDROID_PLATFORM_VER: "35"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-      - name: Install NDK + build-tools + platform
-        run: |
-          sdkmanager --install "ndk;${NDK_VERSION}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "platforms;android-${ANDROID_PLATFORM_VER}"
-          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
-      - name: Build raylib (Android, arm64-v8a static)
-        run: ./scripts/build_raylib_android.sh
-      - name: Build APK
-        run: |
-          # simstats runs use the SIMSTATS=1 build: autoplay + per-second
-          # frames/steps logcat lines that devicefarm_run.py asserts against.
-          make android \
-            ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS}" \
-            ANDROID_PLATFORM_VER="${ANDROID_PLATFORM_VER}" \
-            SIMSTATS="${{ inputs.simstats && '1' || '' }}"
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-west-2
-      - name: Device Farm fuzz test
-        env:
-          DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
-          APP_PATH: build/openblocks.apk
-          DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
-          DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
-          DEVICEFARM_CHECK_SIMSTATS: ${{ inputs.simstats && '1' || '' }}
-          DEVICEFARM_DEVICE_MODEL: ${{ inputs.device_model }}
-        run: |
-          # venv: macOS runners' Homebrew python rejects bare pip installs (PEP 668)
-          python3 -m venv "$RUNNER_TEMP/df-venv"
-          "$RUNNER_TEMP/df-venv/bin/pip" install --quiet boto3
-          "$RUNNER_TEMP/df-venv/bin/python" scripts/devicefarm_run.py
-      - name: Upload Device Farm screenshots/video
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: devicefarm-media-android
-          path: devicefarm-artifacts
-          if-no-files-found: ignore
-
-  ios:
-    name: build .ipa + Device Farm fuzz (iOS)
-    if: inputs.platform == 'ios' || inputs.platform == 'both'
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build device .ipa (unsigned — Device Farm re-signs on upload)
-        run: make ios
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-west-2
-      - name: Device Farm fuzz test
-        env:
-          DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
-          APP_PATH: build/openblocks.ipa
-          DEVICEFARM_MAX_DEVICES: ${{ github.event.inputs.max_devices }}
-          DEVICEFARM_ARTIFACT_DIR: devicefarm-artifacts
-          DEVICEFARM_DEVICE_MODEL: ${{ inputs.device_model }}
-        run: |
-          # venv: macOS runners' Homebrew python rejects bare pip installs (PEP 668)
-          python3 -m venv "$RUNNER_TEMP/df-venv"
-          "$RUNNER_TEMP/df-venv/bin/pip" install --quiet boto3
-          "$RUNNER_TEMP/df-venv/bin/python" scripts/devicefarm_run.py
-      - name: Upload Device Farm screenshots/video
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: devicefarm-media-ios
-          path: devicefarm-artifacts
-          if-no-files-found: ignore
+  devicefarm:
+    uses: dannyheskett/.github/.github/workflows/game-devicefarm.yml@v1
+    with:
+      platform: ${{ inputs.platform }}
+      max_devices: ${{ inputs.max_devices }}
+      simstats: ${{ inputs.simstats }}
+      device_model: ${{ inputs.device_model }}
+    secrets: inherit
