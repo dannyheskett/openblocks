@@ -1,25 +1,43 @@
+# Build output
 build/
 dist/
-.DS_Store
-*.mp4
 *.o
-*.exe
-*.so
 *.a
-third_party/raylib-install*/
+*.so
+*.exe
+*.obj
+
+# Vendored raylib, built from source by scripts/build_raylib_<platform>.sh
 third_party/raylib/
+third_party/raylib-install*/
+
+# Gameplay recordings written by src/recorder.c into the repo root
+*.mp4
+
+# Local agent state. `.claude/*` rather than `.claude/` because git cannot
+# re-include a path whose parent directory is excluded, and committed skills
+# must stay tracked.
+.claude/*
+!.claude/skills/
+
+# Editor / OS
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
-.playwright-mcp/
+.DS_Store
+Thumbs.db
 
-# Signing keys must never be committed (Play upload keystore, etc.)
+# --- openblocks only ---
+# Play signing material. Never commit these: the release workflow decodes the
+# keystore from a secret at build time.
 *.jks
 *.keystore
 *.p12
 *.b64
 
-# Python bytecode cache (from asset generators)
+# Tooling scratch
+.playwright-mcp/
 __pycache__/
 *.pyc
