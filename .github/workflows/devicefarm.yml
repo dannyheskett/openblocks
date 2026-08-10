@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   devicefarm:
-    uses: dannyheskett/.github/.github/workflows/game-devicefarm.yml@v1
+    uses: dannyheskett/.github/.github/workflows/game-devicefarm.yml@v2
     with:
       platform: ${{ inputs.platform }}
       max_devices: ${{ inputs.max_devices }}

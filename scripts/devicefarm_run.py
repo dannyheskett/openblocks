@@ -27,6 +27,7 @@ Config via env (no ARNs are hard-coded, so this file is safe to commit):
 """
 import os
 import re
+import shutil
 import sys
 import time
 import urllib.request
@@ -64,23 +65,45 @@ def poll(fn, done, desc, timeout=1800, interval=10):
         time.sleep(interval)
 
 
+def paginate(fn, key, **kw):
+    """Yield every item across all pages. Device Farm's list_* APIs page at 50.
+
+    max_devices is user-settable and yields one job per device, so an unpaginated
+    walk silently measured only the first page while the assertions below spoke as
+    though they had seen everything -- and a DEVICE_LOG landing past a page
+    boundary failed the run with "was the app built with SIMSTATS=1?", blaming the
+    build for a pagination bug.
+    """
+    token = None
+    while True:
+        page = fn(**kw, nextToken=token) if token else fn(**kw)
+        yield from page[key]
+        token = page.get("nextToken")
+        if not token:
+            return
+
+
 def download_media_artifacts(run_arn, out_dir):
     """Download the run's screenshots and video (skipping logs) so CI can upload
     them as a workflow artifact for visual inspection."""
     os.makedirs(out_dir, exist_ok=True)
     n = 0
-    for job in df.list_jobs(arn=run_arn)["jobs"]:
-        for suite in df.list_suites(arn=job["arn"])["suites"]:
+    for job in paginate(df.list_jobs, "jobs", arn=run_arn):
+        for suite in paginate(df.list_suites, "suites", arn=job["arn"]):
             sname = suite["name"].replace(" ", "_")
-            for test in df.list_tests(arn=suite["arn"])["tests"]:
+            for test in paginate(df.list_tests, "tests", arn=suite["arn"]):
                 for atype in ("SCREENSHOT", "FILE"):
-                    for a in df.list_artifacts(arn=test["arn"], type=atype)["artifacts"]:
+                    for a in paginate(df.list_artifacts, "artifacts", arn=test["arn"], type=atype):
                         ext = (a.get("extension") or "").lower()
                         if ext not in ("mp4", "png", "jpg", "jpeg"):
                             continue
                         name = a["name"].replace(" ", "_")
                         fn = os.path.join(out_dir, f"{sname}-{name}.{ext}")
-                        urllib.request.urlretrieve(a["url"], fn)
+                        # urlretrieve has no timeout parameter, so a stalled
+                        # transfer hung until the job timeout.
+                        with urllib.request.urlopen(a["url"], timeout=120) as r, \
+                                open(fn, "wb") as out:
+                            shutil.copyfileobj(r, out)
                         n += 1
     print(f"downloaded {n} media artifact(s) to {out_dir}", flush=True)
 
@@ -96,13 +119,13 @@ def check_simstats(run_arn):
     The rendered-frame rate is reported so the run states whether it really
     exercised a high-refresh (>60 Hz) display or should be retried on one."""
     windows = []  # (steps_per_sec, frames_per_sec) per logged play window
-    for job in df.list_jobs(arn=run_arn)["jobs"]:
-        for suite in df.list_suites(arn=job["arn"])["suites"]:
-            for test in df.list_tests(arn=suite["arn"])["tests"]:
-                for a in df.list_artifacts(arn=test["arn"], type="LOG")["artifacts"]:
+    for job in paginate(df.list_jobs, "jobs", arn=run_arn):
+        for suite in paginate(df.list_suites, "suites", arn=job["arn"]):
+            for test in paginate(df.list_tests, "tests", arn=suite["arn"]):
+                for a in paginate(df.list_artifacts, "artifacts", arn=test["arn"], type="LOG"):
                     if a["type"] != "DEVICE_LOG":
                         continue
-                    text = urllib.request.urlopen(a["url"]).read().decode("utf-8", "replace")
+                    text = urllib.request.urlopen(a["url"], timeout=120).read().decode("utf-8", "replace")
                     for m in SIMSTATS_RE.finditer(text):
                         span = float(m.group(1))
                         windows.append((int(m.group(3)) / span, int(m.group(2)) / span))
@@ -143,7 +166,7 @@ def main():
         up["url"], data=data, method="PUT",
         headers={"Content-Type": "application/octet-stream"},
     )
-    urllib.request.urlopen(req).read()
+    urllib.request.urlopen(req, timeout=300).read()
     print(f"uploaded {len(data)} bytes ({APP_PATH})", flush=True)
 
     # 2) Wait for Device Farm to validate the app.
