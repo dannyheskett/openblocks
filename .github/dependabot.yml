@@ -12,3 +12,18 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+
+  # scripts/requirements.txt pins boto3 for the Device Farm runner
+  # (scripts/devicefarm_run.py). The pin exists so the hub's devicefarm
+  # workflow installs a known version rather than whatever pip resolves that
+  # day; this entry is what keeps that pin from going stale. openblocks is the
+  # only game repo with Python, so it is the only one that needs pip.
+  - package-ecosystem: "pip"
+    directory: "/scripts"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      pip:
+        patterns: ["*"]
