@@ -1,8 +1,10 @@
 # openblocks — Google Play store listing
 
 Copy/paste these into the Play Console (**Grow → Store presence → Main store
-listing**, plus **Store settings** for category). Images regenerate with
-`python3 scripts/gen_play_assets.py`.
+listing**, plus **Store settings** for category). The images in this folder are
+the shipped assets — they were generated once and are now committed artifacts.
+The generator was removed after the assets landed; recover it from history
+(`git log -- scripts/gen_play_assets.py`) if they ever need regenerating.
 
 ## Assets (this folder)
 
