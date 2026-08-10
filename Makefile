@@ -281,6 +281,8 @@ $(ANDROID_APK): $(ANDROID_LIB) $(ANDROID_DEX) $(ANDROID_KEYSTORE) \
 ANDROID_AAB        := build/openblocks.aab
 BUNDLETOOL_VERSION ?= 1.17.2
 BUNDLETOOL         ?= build/bundletool.jar
+# Checksum of bundletool-all-$(BUNDLETOOL_VERSION).jar. Bump both together.
+BUNDLETOOL_SHA256  ?= 2d4ad908faea64047c1cc9cb747e6aa667c6ab192e09607bd16b67246a8cd6ae
 
 PLAY_KEYSTORE   ?= $(ANDROID_KEYSTORE)
 PLAY_KEY_ALIAS  ?= openblocks
@@ -289,13 +291,25 @@ PLAY_KEY_PASS   ?= android
 
 android-play: $(ANDROID_AAB)
 
+# Downloaded to .tmp and renamed only after the checksum matches. The rename
+# matters as much as the check: this jar is run with `java -jar` in the same job
+# that has just decoded the Play upload keystore to disk, and leaving a rejected
+# download at $@ would let the next run's existence test accept it unverified.
 $(BUNDLETOOL):
 	@mkdir -p $(dir $@)
-	curl -fsSL -o $@ \
+	curl -fsSL -o $@.tmp \
 	    https://github.com/google/bundletool/releases/download/$(BUNDLETOOL_VERSION)/bundletool-all-$(BUNDLETOOL_VERSION).jar
+	echo "$(BUNDLETOOL_SHA256)  $@.tmp" | sha256sum -c - || { rm -f $@.tmp; exit 1; }
+	mv $@.tmp $@
 
+# P2-OB-02: exported rather than passed on the command line, so the passwords
+# reach jarsigner through the environment and appear in neither the build log nor
+# the process table.
+$(ANDROID_AAB): export PLAY_STORE_PASS_ENV = $(PLAY_STORE_PASS)
+$(ANDROID_AAB): export PLAY_KEY_PASS_ENV   = $(PLAY_KEY_PASS)
 $(ANDROID_AAB): $(ANDROID_LIB) $(ANDROID_DEX) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
                 android/AndroidManifest.xml android/res/values/styles.xml
+	@[ "$(SIMSTATS)" != "1" ] || { echo "refusing to build a Play bundle from a SIMSTATS tree"; exit 1; }
 	@rm -rf build/aab && mkdir -p build/aab/module/manifest \
 	    build/aab/module/lib/$(ANDROID_ABI) build/aab/module/dex
 	# Compile android/res, then link into a *protobuf* APK (bundletool's input).
@@ -314,8 +328,8 @@ $(ANDROID_AAB): $(ANDROID_LIB) $(ANDROID_DEX) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
 	cd build/aab/module && zip -qr ../module.zip manifest resources.pb res lib dex
 	java -jar $(BUNDLETOOL) build-bundle --modules=build/aab/module.zip --output=$@
 	# Sign the bundle (JAR signature) with the upload key.
-	jarsigner -keystore $(PLAY_KEYSTORE) -storepass $(PLAY_STORE_PASS) \
-	    -keypass $(PLAY_KEY_PASS) -sigalg SHA256withRSA -digestalg SHA-256 \
+	@jarsigner -keystore $(PLAY_KEYSTORE) -storepass:env PLAY_STORE_PASS_ENV \
+	    -keypass:env PLAY_KEY_PASS_ENV -sigalg SHA256withRSA -digestalg SHA-256 \
 	    $@ $(PLAY_KEY_ALIAS)
 	@echo "[android] built $@ (versionCode $(ANDROID_VERSION_CODE), versionName $(ANDROID_VERSION_NAME))"
 
@@ -500,4 +514,6 @@ clean:
 # Pull in auto-generated header dependencies (ignored if not yet present).
 -include $(OBJ:.o=.d) $(REL_OBJ:.o=.d) $(WIN64_OBJ:.o=.d) $(WIN32_OBJ:.o=.d) $(MAC_OBJ:.o=.d)
 
-.PHONY: all run release run-release windows mac web web-serve test dist dist-linux dist-windows dist-mac dist-web clean
+.PHONY: all run release run-release windows mac web web-serve test clean \
+        android android-play ios ios-sim \
+        dist dist-linux dist-windows dist-mac dist-web dist-android dist-android-play dist-ios
