@@ -235,8 +235,12 @@ jobs:
           codesign -d --entitlements :- "$app"
           test -f "$app/embedded.mobileprovision" || { echo "no embedded profile" >&2; exit 1; }
           test -f "$app/Assets.car"               || { echo "no compiled app icon" >&2; exit 1; }
+          # Top-level CFBundleIconName, not just the nested one actool writes:
+          # missing it fails the upload with ITMS-90713.
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion'  "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$app/Info.plist"
       - uses: actions/upload-artifact@v7
         with:
           name: ios

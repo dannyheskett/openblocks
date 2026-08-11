@@ -450,6 +450,11 @@ $(IOS_IPA): $(IOS_DEPS)
 	    --output-partial-info-plist build/ios-device/assetcatalog.plist >/dev/null
 	/usr/libexec/PlistBuddy -c "Merge build/ios-device/assetcatalog.plist" \
 	    $(IOS_APP_DIR)/Info.plist
+	@# actool only writes CFBundleIconName nested under CFBundleIcons, but the
+	@# App Store also requires it at the top level -- without it the upload
+	@# fails with ITMS-90713 "Missing Info.plist value". plutil -replace adds
+	@# the key when absent, unlike PlistBuddy's Add/Set split.
+	plutil -replace CFBundleIconName -string AppIcon $(IOS_APP_DIR)/Info.plist
 	@# Sign, when an identity is supplied. Entitlements must be a subset of the
 	@# provisioning profile's, so keep them minimal.
 	@if [ -n "$(IOS_SIGN_IDENTITY)" ]; then \
