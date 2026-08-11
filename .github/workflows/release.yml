@@ -415,3 +415,75 @@ jobs:
           track: internal
           status: completed
           releaseName: release-${{ needs.prepare.outputs.version }}
+
+  # ---------------------------------------------------------------------------
+  # Upload the signed .ipa to App Store Connect, so it shows up under TestFlight
+  # and can be picked for App Store review. Runs on macOS because altool ships
+  # with Xcode; there is no Linux or Windows equivalent, which is precisely why
+  # this is automated -- the maintainer has no Mac.
+  #
+  # `!inputs.dry_run` is load-bearing for the same reason as the Play job: a dry
+  # run must not put a build in front of Apple.
+  # ---------------------------------------------------------------------------
+  publish-testflight:
+    if: ${{ !inputs.dry_run && needs.publish.result == 'success' }}
+    name: upload .ipa to App Store Connect
+    needs: [prepare, publish]
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Download the ios artifact (contains the .ipa)
+        uses: actions/download-artifact@v8
+        with:
+          name: ios
+          path: dist
+      - name: Gate on the API-key secrets + a signed .ipa
+        id: gate
+        env:
+          K: ${{ secrets.ASC_KEY_P8 }}
+          I: ${{ secrets.ASC_KEY_ID }}
+          S: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          ipa=$(find dist -maxdepth 1 -name '*.ipa' | head -1)
+          signed=false
+          if [ -n "$ipa" ] && unzip -l "$ipa" | grep -q '_CodeSignature'; then signed=true; fi
+          if [ -n "$K" ] && [ -n "$I" ] && [ -n "$S" ] && [ "$signed" = true ]; then
+            echo "go=true"  >> "$GITHUB_OUTPUT"
+            echo "ipa=$ipa" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping App Store upload (key: $([ -n "$K" ] && echo yes || echo no); signed .ipa: $signed)."
+          fi
+      # altool finds the key by convention: AuthKey_<KeyID>.p8 in ~/.appstoreconnect/private_keys.
+      - name: Install the App Store Connect API key
+        if: steps.gate.outputs.go == 'true'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+      # Validate first: it catches ITMS-* rejections (bad icon, duplicate build
+      # number, missing plist keys) without burning the build number, and its
+      # error messages are far better than the ones the upload path emits.
+      - name: Validate the .ipa against App Store rules
+        if: steps.gate.outputs.go == 'true'
+        env:
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --validate-app -f "${{ steps.gate.outputs.ipa }}" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+      - name: Upload the .ipa to App Store Connect
+        if: steps.gate.outputs.go == 'true'
+        env:
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app -f "${{ steps.gate.outputs.ipa }}" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          echo "Uploaded build ${{ needs.prepare.outputs.version }}. Apple processing takes ~5-15 min before it appears in TestFlight."
+      - name: Remove the API key
+        if: always()
+        run: rm -rf ~/.appstoreconnect/private_keys
