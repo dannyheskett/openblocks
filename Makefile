@@ -378,8 +378,23 @@ web-serve: $(WEB_OUT)
 # project — mirroring the no-Gradle Android approach. C sources are built with
 # clang (C99); the .mm sources with clang++ (Obj-C++); linked with clang++.
 # ---------------------------------------------------------------------------
-IOS_MIN        ?= 13.0
+IOS_MIN        ?= 14.0
 IOS_APP_NAME   := Openblocks
+IOS_BUNDLE_ID  := com.danheskett.openblocks
+# CFBundleVersion must increase with every App Store upload, so it tracks the
+# release number exactly like ANDROID_VERSION_CODE. Clamped to >= 1 for local
+# builds with no release tags yet.
+IOS_BUILD_NUMBER ?= $(OPENBLOCKS_VERSION)
+ifeq ($(IOS_BUILD_NUMBER),0)
+IOS_BUILD_NUMBER := 1
+endif
+IOS_VERSION_NAME ?= 1.0.$(IOS_BUILD_NUMBER)
+# Signing is opt-in: set IOS_SIGN_IDENTITY (and IOS_PROFILE) to produce an
+# App Store-submittable .ipa. Unset, the build stays unsigned for Device Farm,
+# which re-signs on upload. Mirrors how the Play AAB gates on a keystore.
+IOS_SIGN_IDENTITY ?=
+IOS_PROFILE       ?=
+IOS_TEAM_ID       ?=
 IOS_C_SRC      := src/game.c src/tick.c src/main.c src/render.c src/render_portrait.c src/render_landscape.c \
                   src/input.c src/sound.c src/recorder.c src/safe_area.c
 IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm ios/audio_ios.mm
@@ -387,7 +402,8 @@ IOS_CFLAGS     := -std=c99   -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
 IOS_MMFLAGS    := -std=c++14 -fobjc-arc -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
 IOS_FRAMEWORKS := -framework UIKit -framework Metal -framework QuartzCore \
                   -framework CoreGraphics -framework AVFoundation -framework Foundation
-IOS_DEPS       := $(IOS_C_SRC) $(IOS_MM_SRC) $(wildcard src/*.h ios/*.h) ios/Info.plist
+IOS_DEPS       := $(IOS_C_SRC) $(IOS_MM_SRC) $(wildcard src/*.h ios/*.h) ios/Info.plist \
+                  $(wildcard ios/Assets.xcassets/*/* ios/Assets.xcassets/*)
 
 # $(call ios_build,<sdk>,<target-triple>,<app-dir>,<obj-dir>) — compile + link
 # the app binary into <app-dir>/$(IOS_APP_NAME) and copy the Info.plist.
@@ -410,10 +426,11 @@ $(IOS_SIM_APP): $(IOS_DEPS)
 # ones tools require — notably CFBundleSupportedPlatforms, which AWS Device Farm
 # checks on upload ("could not find the platform value in the Info.plist").
 IOS_IPA := build/openblocks.ipa
+IOS_APP_DIR := build/ios-device/Payload/$(IOS_APP_NAME).app
 ios: $(IOS_IPA)
 $(IOS_IPA): $(IOS_DEPS)
-	$(call ios_build,iphoneos,arm64-apple-ios$(IOS_MIN),build/ios-device/Payload/$(IOS_APP_NAME).app,build/ios-device/obj)
-	plist=build/ios-device/Payload/$(IOS_APP_NAME).app/Info.plist; \
+	$(call ios_build,iphoneos,arm64-apple-ios$(IOS_MIN),$(IOS_APP_DIR),build/ios-device/obj)
+	plist=$(IOS_APP_DIR)/Info.plist; \
 	/usr/libexec/PlistBuddy \
 	    -c "Add :CFBundleSupportedPlatforms array" \
 	    -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" \
@@ -421,9 +438,48 @@ $(IOS_IPA): $(IOS_DEPS)
 	    -c "Add :DTPlatformVersion string $(IOS_MIN)" \
 	    -c "Add :UIRequiredDeviceCapabilities array" \
 	    -c "Add :UIRequiredDeviceCapabilities:0 string arm64" \
+	    -c "Set :CFBundleVersion $(IOS_BUILD_NUMBER)" \
+	    -c "Set :CFBundleShortVersionString $(IOS_VERSION_NAME)" \
 	    "$$plist"
+	@# App icon. A bundle with no icon is auto-rejected at upload. actool
+	@# compiles the catalog to Assets.car and emits the CFBundleIcons /
+	@# CFBundleIconName keys into a partial plist, which we merge in.
+	xcrun actool ios/Assets.xcassets --compile $(IOS_APP_DIR) \
+	    --platform iphoneos --minimum-deployment-target $(IOS_MIN) \
+	    --target-device iphone --app-icon AppIcon \
+	    --output-partial-info-plist build/ios-device/assetcatalog.plist >/dev/null
+	/usr/libexec/PlistBuddy -c "Merge build/ios-device/assetcatalog.plist" \
+	    $(IOS_APP_DIR)/Info.plist
+	@# actool only writes CFBundleIconName nested under CFBundleIcons, but the
+	@# App Store also requires it at the top level -- without it the upload
+	@# fails with ITMS-90713 "Missing Info.plist value". plutil -replace adds
+	@# the key when absent, unlike PlistBuddy's Add/Set split.
+	plutil -replace CFBundleIconName -string AppIcon $(IOS_APP_DIR)/Info.plist
+	@# Sign, when an identity is supplied. Entitlements must be a subset of the
+	@# provisioning profile's, so keep them minimal.
+	@if [ -n "$(IOS_SIGN_IDENTITY)" ]; then \
+	    if [ -z "$(IOS_PROFILE)" ]; then echo "error: IOS_SIGN_IDENTITY set but IOS_PROFILE is empty" >&2; exit 1; fi; \
+	    if [ -z "$(IOS_TEAM_ID)" ]; then echo "error: IOS_SIGN_IDENTITY set but IOS_TEAM_ID is empty" >&2; exit 1; fi; \
+	    cp "$(IOS_PROFILE)" $(IOS_APP_DIR)/embedded.mobileprovision; \
+	    ents=build/ios-device/entitlements.plist; \
+	    printf '%s\n' \
+	      '<?xml version="1.0" encoding="UTF-8"?>' \
+	      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+	      '<plist version="1.0"><dict>' \
+	      '  <key>application-identifier</key><string>$(IOS_TEAM_ID).$(IOS_BUNDLE_ID)</string>' \
+	      '  <key>com.apple.developer.team-identifier</key><string>$(IOS_TEAM_ID)</string>' \
+	      '  <key>get-task-allow</key><false/>' \
+	      '</dict></plist>' > $$ents; \
+	    codesign --force --timestamp=none \
+	        --sign "$(IOS_SIGN_IDENTITY)" --entitlements $$ents $(IOS_APP_DIR); \
+	    codesign --verify --strict --verbose=2 $(IOS_APP_DIR); \
+	fi
 	cd build/ios-device && rm -f ../openblocks.ipa && zip -qr ../openblocks.ipa Payload
-	@echo "[ios] built $(IOS_IPA) (unsigned; AWS Device Farm re-signs on upload)"
+	@if [ -n "$(IOS_SIGN_IDENTITY)" ]; then \
+	    echo "[ios] built $(IOS_IPA) (signed: $(IOS_SIGN_IDENTITY), build $(IOS_BUILD_NUMBER))"; \
+	else \
+	    echo "[ios] built $(IOS_IPA) (unsigned; AWS Device Farm re-signs on upload)"; \
+	fi
 
 dist-ios: $(IOS_IPA)
 	@mkdir -p $(DIST)

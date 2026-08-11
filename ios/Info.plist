@@ -12,14 +12,23 @@
     <string>Openblocks</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <!-- Placeholders. The device build overwrites both from the release number
+         (see IOS_BUILD_NUMBER in the Makefile); App Store Connect rejects an
+         upload whose CFBundleVersion is not greater than the previous one. -->
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- 14.0, not 13.0: the UILaunchScreen dict below is iOS 14+. iOS 13 would
+         need a launch storyboard instead, and Apple requires one or the other. -->
     <key>MinimumOSVersion</key>
-    <string>13.0</string>
+    <string>14.0</string>
+    <!-- Openblocks uses no encryption. Declaring this stops App Store Connect
+         asking the export-compliance question on every single upload. -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>
