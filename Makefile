@@ -378,7 +378,7 @@ web-serve: $(WEB_OUT)
 # project — mirroring the no-Gradle Android approach. C sources are built with
 # clang (C99); the .mm sources with clang++ (Obj-C++); linked with clang++.
 # ---------------------------------------------------------------------------
-IOS_MIN        ?= 14.0
+IOS_MIN        ?= 15.0
 IOS_APP_NAME   := Openblocks
 IOS_BUNDLE_ID  := com.danheskett.openblocks
 # CFBundleVersion must increase with every App Store upload, so it tracks the
@@ -435,7 +435,6 @@ $(IOS_IPA): $(IOS_DEPS)
 	    -c "Add :CFBundleSupportedPlatforms array" \
 	    -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" \
 	    -c "Add :DTPlatformName string iphoneos" \
-	    -c "Add :DTPlatformVersion string $(IOS_MIN)" \
 	    -c "Add :UIRequiredDeviceCapabilities array" \
 	    -c "Add :UIRequiredDeviceCapabilities:0 string arm64" \
 	    -c "Set :CFBundleVersion $(IOS_BUILD_NUMBER)" \
@@ -455,6 +454,26 @@ $(IOS_IPA): $(IOS_DEPS)
 	@# fails with ITMS-90713 "Missing Info.plist value". plutil -replace adds
 	@# the key when absent, unlike PlistBuddy's Add/Set split.
 	plutil -replace CFBundleIconName -string AppIcon $(IOS_APP_DIR)/Info.plist
+	@# Toolchain provenance. Xcode injects these; a hand-assembled bundle has
+	@# none, and App Store Connect reads DTXcodeBuild to identify the toolchain
+	@# -- without it, review refuses the build as "using a beta version of
+	@# Xcode". DTPlatformVersion is the SDK version, NOT the deployment target.
+	plist=$(IOS_APP_DIR)/Info.plist; \
+	xcode_ver=$$(xcodebuild -version | sed -n '1s/^Xcode //p'); \
+	xcode_build=$$(xcodebuild -version | sed -n '2s/^Build version //p'); \
+	sdk_ver=$$(xcrun --sdk iphoneos --show-sdk-version); \
+	sdk_build=$$(xcrun --sdk iphoneos --show-sdk-build-version); \
+	plat_ver=$$(xcrun --sdk iphoneos --show-sdk-platform-version); \
+	dtxcode=$$(echo $$xcode_ver | awk -F. '{printf "%02d%d%d", $$1, $$2+0, $$3+0}'); \
+	plutil -replace DTXcode            -string "$$dtxcode"            $$plist; \
+	plutil -replace DTXcodeBuild       -string "$$xcode_build"        $$plist; \
+	plutil -replace DTSDKName          -string "iphoneos$$sdk_ver"    $$plist; \
+	plutil -replace DTSDKBuild         -string "$$sdk_build"          $$plist; \
+	plutil -replace DTPlatformVersion  -string "$$plat_ver"           $$plist; \
+	plutil -replace DTPlatformBuild    -string "$$sdk_build"          $$plist; \
+	plutil -replace DTCompiler         -string "com.apple.compilers.llvm.clang.1_0" $$plist; \
+	plutil -replace BuildMachineOSBuild -string "$$(sw_vers -buildVersion)" $$plist; \
+	echo "[ios] toolchain: Xcode $$xcode_ver ($$xcode_build), iphoneos SDK $$sdk_ver ($$sdk_build)"
 	@# Sign, when an identity is supplied. Entitlements must be a subset of the
 	@# provisioning profile's, so keep them minimal.
 	@if [ -n "$(IOS_SIGN_IDENTITY)" ]; then \
