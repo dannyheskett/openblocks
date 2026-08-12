@@ -57,9 +57,25 @@ typedef struct {
     int     mode;      // 0 undecided, 1 horizontal drag, 2 downward drag
     int     max_np;    // most simultaneous fingers seen during the sequence
     float   last_dy;   // most recent vertical delta from origin (flick velocity)
+    bool    consumed;  // a piece locked mid-gesture: emit nothing until release
 } TouchState;
 
 static TouchState s_touch;
+
+// One gesture, one piece. A downward drag soft-drops at ~30 rows/sec, so a
+// piece can reach the floor and lock while the finger is still moving. Without
+// this latch the rest of that gesture lands on the piece that just spawned: the
+// held `down` keeps soft-dropping it from the top, and worse, the flick decided
+// on release hard-drops it. One flick, two pieces. Called from the frame loop
+// on EV_LOCK; cleared when the finger actually lifts.
+// Only downward drags are consumed. A lock also fires under a HORIZONTAL drag
+// (gravity lands the piece while the player is still steering), and cutting
+// that gesture off would stop them steering the next piece until they lifted --
+// trading one bug for a worse one. Mode is exclusive, so a mode-2 gesture emits
+// no horizontal movement anyway: nothing but the drop is lost.
+void input_touch_consume(void) {
+    if (s_touch.active && s_touch.mode == 2) s_touch.consumed = true;
+}
 
 // Touch source: playfield gestures (drag/flick/tap, two-finger tap = pause)
 // plus swipe menus. Only ever sets fields true, so it composes over the
@@ -108,6 +124,7 @@ static void poll_touch(Input* in) {
             s_touch.t0 = now;
             s_touch.mode = 0;
             s_touch.max_np = 0;
+            s_touch.consumed = false;
         }
         if (np > s_touch.max_np) s_touch.max_np = np;
         // A second finger turns the sequence into a pause candidate (decided on
@@ -126,7 +143,10 @@ static void poll_touch(Input* in) {
                 if (p.x - s_touch.anchor_x >= (float)step)      { in->right = true; s_touch.anchor_x += (float)step; }
                 else if (p.x - s_touch.anchor_x <= -(float)step) { in->left  = true; s_touch.anchor_x -= (float)step; }
             }
-            if (s_touch.mode == 2) in->down = true; // soft drop while dragging down
+            // Soft drop while dragging down -- unless the piece this gesture was
+            // steering already locked, in which case the drag no longer owns the
+            // piece on screen and must not drop it.
+            if (s_touch.mode == 2 && !s_touch.consumed) in->down = true;
             s_touch.last_dy = dy;
         }
     } else if (s_touch.active) {
@@ -134,7 +154,11 @@ static void poll_touch(Input* in) {
         // GESTURE_TAP fires on touch-DOWN, so using it here would fire a
         // rotate at the start of every drag.)
         double dur = now - s_touch.t0;
-        if (s_touch.max_np >= 2) {
+        if (s_touch.consumed) {
+            // The piece this gesture was drop-steering locked mid-gesture. The
+            // flick decided here would land on the piece that spawned in its
+            // place, hard-dropping it instantly -- one flick, two pieces.
+        } else if (s_touch.max_np >= 2) {
             // Two-finger tap: pause (back to the menu; the game stays
             // resumable). Long multi-finger contact is ignored.
             if (dur < 0.5) {
@@ -171,6 +195,8 @@ static void poll_touch(Input* in) {
     }
 #endif
 }
+#else
+void input_touch_consume(void) { } // no touch input on this platform
 #endif // OB_TOUCH
 
 Input input_poll(void) {
