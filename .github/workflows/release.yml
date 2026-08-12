@@ -160,10 +160,24 @@ jobs:
   build-ios:
     name: iOS device .ipa build
     needs: prepare
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      # Apple rejects uploads built against an older SDK ("This app was built
+      # with the iOS 17.5 SDK. All iOS and iPadOS apps must be built with the
+      # iOS 26 SDK or later"). Fail here, with a clear message, rather than
+      # after a full build at Apple's validator.
+      - name: Check the iOS SDK is new enough for the App Store
+        run: |
+          set -eux
+          xcodebuild -version
+          sdk=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iphoneos SDK: $sdk"
+          if [ "${sdk%%.*}" -lt 26 ]; then
+            echo "::error::iOS SDK $sdk is too old; the App Store requires 26+. Update the runner image or select a newer Xcode."
+            exit 1
+          fi
       # Signing config never fails the release: without the Apple secrets the
       # build still produces the unsigned .ipa that AWS Device Farm re-signs.
       - name: Detect iOS signing secrets
@@ -429,7 +443,7 @@ jobs:
     if: ${{ !inputs.dry_run && needs.publish.result == 'success' }}
     name: upload .ipa to App Store Connect
     needs: [prepare, publish]
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - name: Download the ios artifact (contains the .ipa)
