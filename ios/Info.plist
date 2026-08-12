@@ -21,10 +21,11 @@
     <string>1.0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
-    <!-- 14.0, not 13.0: the UILaunchScreen dict below is iOS 14+. iOS 13 would
-         need a launch storyboard instead, and Apple requires one or the other. -->
+    <!-- 15.0: the UILaunchScreen dict below needs iOS 14+, and Apple's
+         ITMS-90068 requires 15.0+ for all uploads from Spring 2027. iOS 15
+         runs on the iPhone 6s and later, so this costs no realistic users. -->
     <key>MinimumOSVersion</key>
-    <string>14.0</string>
+    <string>15.0</string>
     <!-- Openblocks uses no encryption. Declaring this stops App Store Connect
          asking the export-compliance question on every single upload. -->
     <key>ITSAppUsesNonExemptEncryption</key>
