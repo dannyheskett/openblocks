@@ -501,3 +501,44 @@ jobs:
       - name: Remove the API key
         if: always()
         run: rm -rf ~/.appstoreconnect/private_keys
+
+  # ---------------------------------------------------------------------------
+  # Attach "What to Test" notes to the build that was just uploaded.
+  #
+  # Distribution needs no help -- the internal beta group has
+  # hasAccessToAllBuilds and builds default to autoNotifyEnabled, so testers get
+  # every upload automatically. Apple just never fills in the note explaining
+  # what changed, which is what this does.
+  #
+  # Runs on Linux (pure REST, no Xcode) so polling through Apple's 5-15 minute
+  # processing window costs ordinary runner minutes rather than macOS ones.
+  # ---------------------------------------------------------------------------
+  testflight-notes:
+    if: ${{ !inputs.dry_run && needs.publish-testflight.result == 'success' }}
+    name: attach TestFlight release notes
+    needs: [prepare, publish-testflight]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate on the API-key secrets
+        id: gate
+        env:
+          K: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          if [ -n "$K" ]; then echo "go=true" >> "$GITHUB_OUTPUT"; else echo "go=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Attach notes and report tester distribution
+        if: steps.gate.outputs.go == 'true'
+        env:
+          ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUNDLE_ID:     com.danheskett.${{ github.event.repository.name }}
+          BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+          NOTES: |
+            release-${{ needs.prepare.outputs.version }}
+
+            ${{ github.event.head_commit.message }}
+        run: |
+          python3 -m pip install --quiet cryptography
+          python3 scripts/testflight_notes.py
