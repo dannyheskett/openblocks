@@ -358,6 +358,76 @@ static void test_thresholds_scale_with_cell_size(void) {
     CHECK(in.right);
 }
 
+// --- A lock mid-gesture ends that gesture's claim on the playfield -----------
+// A downward drag soft-drops at ~30 rows/s, so the piece can reach the floor
+// and lock while the finger is still moving. The rest of that gesture must not
+// touch the piece that spawns in its place: not the held soft drop, and not the
+// flick decided on release (which would hard-drop it instantly).
+static void test_lock_stops_soft_drop_mid_gesture(void) {
+    reset();
+
+    frame_touch(200, 200);
+    Input in = frame_touch(200, 260);       // mode down
+    CHECK(in.down);
+
+    input_touch_consume();                   // the piece locked this step
+
+    in = frame_touch(200, 300);              // finger still down, still moving
+    CHECK(!in.down);                         // must not drop the new piece
+    in = frame_touch(200, 340);
+    CHECK(!in.down);
+}
+
+static void test_lock_suppresses_the_flick_on_release(void) {
+    reset();
+
+    frame_touch(200, 200);
+    Input in = frame_touch(200, 260);
+    CHECK(in.down);
+
+    input_touch_consume();                   // the piece locked this step
+
+    in = frame_touch(200, 340);              // a flick by distance and velocity
+    CHECK(!in.down);
+    in = frame_release();
+    CHECK(!in.hard_drop_pressed);            // would have slammed the new piece
+    CHECK(!in.rotate_pressed && !in.touch_tap);
+}
+
+// The latch lasts exactly one gesture: lifting and touching again works.
+static void test_next_gesture_works_after_a_consumed_one(void) {
+    reset();
+
+    frame_touch(200, 200);
+    frame_touch(200, 260);
+    input_touch_consume();
+    Input in = frame_touch(200, 300);
+    CHECK(!in.down);
+    frame_release();
+
+    frame_touch(200, 200);                   // a fresh sequence
+    in = frame_touch(200, 260);
+    CHECK(in.down);                          // soft drop works again
+    in = frame_release();
+    CHECK(in.hard_drop_pressed);             // and so does the flick
+}
+
+// A lock under a HORIZONTAL drag must not cut off steering: gravity locks
+// pieces all the time while the player is mid-drag, and losing lateral control
+// until they lifted would be worse than the bug this guards.
+static void test_lock_does_not_cancel_horizontal_steering(void) {
+    reset();
+
+    frame_touch(100, 200);
+    Input in = frame_touch(140, 200);        // 40 px: mode horizontal, one column
+    CHECK(in.right);
+
+    input_touch_consume();                   // a piece locked under the drag
+
+    in = frame_touch(180, 200);
+    CHECK(in.right);                         // steering still works
+}
+
 int main(void) {
     printf("test_input: touch gestures — tap/rotate, drag move, soft drop, flick\n");
     printf("            hard drop, two-finger pause, swipe menus, mode guards\n");
@@ -378,6 +448,10 @@ int main(void) {
     test_swipes_drive_menus();
     test_landscape_ignores_touch();
     test_thresholds_scale_with_cell_size();
+    test_lock_stops_soft_drop_mid_gesture();
+    test_lock_suppresses_the_flick_on_release();
+    test_next_gesture_works_after_a_consumed_one();
+    test_lock_does_not_cancel_horizontal_steering();
     if (failures == 0) {
         printf("OK: all checks passed\n");
         return 0;

@@ -37,4 +37,11 @@ typedef struct {
 
 Input input_poll(void);
 
+// End the current touch gesture's authority over the playfield. Called when a
+// piece locks: a downward drag soft-drops fast enough to lock mid-gesture, and
+// without this the remainder of that gesture (the held soft drop, and the flick
+// decided on release) applies to the piece that just spawned. No-op on
+// platforms without touch, and for gestures other than a downward drag.
+void input_touch_consume(void);
+
 #endif

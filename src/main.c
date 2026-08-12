@@ -227,6 +227,16 @@ static void frame_step(void* arg) {
                 }
                 game_update(c->game);
                 frame_events |= c->game->events;
+                // A lock ends the current touch gesture's claim on the
+                // playfield. Checked inside the step loop, not after it: input
+                // is sampled once per frame, so the remaining steps would keep
+                // feeding the stale `down` to the piece that just spawned.
+                // Clearing it locally stops that within this frame; the latch
+                // stops it on subsequent frames, until the finger lifts.
+                if (c->game->events & EV_LOCK) {
+                    input_touch_consume();
+                    in.down = false;
+                }
             }
             // A frame that ran no step (a display faster than 60 Hz) still applies
             // the press immediately, so input is never dropped; gravity catches up
