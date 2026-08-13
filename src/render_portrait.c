@@ -36,7 +36,8 @@ static int outer_margin(void) {
 // --- Shared portrait layout -------------------------------------------------
 // Title bar, then one HUD band above the field: SCORE / LINES / LEVEL columns
 // (uniform font, labels over values) with the NEXT preview box right-aligned.
-// There is no on-screen pause key — a two-finger tap pauses (see input.c).
+// There is no on-screen pause key — a two-finger tap pauses (see input.c);
+// draw_pause_hint names that gesture under the field early in a game.
 typedef struct {
     int fs, hud_h, band_y;       // uniform font size; band height and top y
     int cell, px, py, field_w;   // playfield geometry
@@ -165,6 +166,35 @@ static void draw_game_portrait(const Game* game) {
     draw_playfield(game, L.px, L.py, L.cell);
 }
 
+// Discoverability aid for the pause gesture. Pausing is a two-finger tap
+// (input.c) with no on-screen key, and iOS has no Back button to fall back on,
+// so a player has no way to learn the gesture exists. Name it under the
+// playfield for the first few pieces of a game, then get out of the way. Keyed
+// on pieces spawned rather than a timer, so it follows how far the player has
+// actually got rather than how long they stared at the screen.
+#define HINT_PIECES 3
+
+static void draw_pause_hint(const Game* game) {
+    int spawned = 0;
+    for (int i = 0; i < NUM_PIECES; i++) spawned += game->piece_counts[i];
+    if (spawned > HINT_PIECES) return;
+
+    BandLayout L;
+    band_layout(&L);
+    int w = GetScreenWidth(), h = GetScreenHeight();
+    int field_bottom = L.py + L.cell * PLAYFIELD_HEIGHT;
+    int room = h - field_bottom;   // bottom margin band_layout left below the field
+    int fs = L.fs * 2 / 3;
+    if (fs > room - 4) fs = room - 4;   // stay inside the margin, never over the field
+    if (fs < 8) return;                // no room on this layout: skip it entirely
+
+    const char* msg = "Two-finger tap to pause";
+    int tw = gfx_measure_text(msg, fs);
+    if (tw > w) return;
+    gfx_text(msg, (w - tw) / 2, field_bottom + (room - fs) / 2, fs,
+             (Color){110, 116, 130, 255});
+}
+
 static void draw_center_panel_portrait(const char* title, const char* subtitle, Color tc) {
     int w = GetScreenWidth(), h = GetScreenHeight();
     int base = (w < h) ? w : h;   // keep the dialog compact even in a wide window
@@ -180,6 +210,7 @@ static void draw_scene_portrait(const Game* game, const char* overlay_title,
     gfx_begin_frame();
     draw_game_portrait(game);
     if (overlay_title) draw_center_panel_portrait(overlay_title, overlay_sub, overlay_tc);
+    else draw_pause_hint(game);   // only during live play; overlays own the screen
     gfx_end_frame();
 }
 

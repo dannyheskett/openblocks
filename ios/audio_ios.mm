@@ -24,7 +24,10 @@ void audio_init(void) {
     @autoreleasepool {
         NSError* err = nil;
         AVAudioSession* session = [AVAudioSession sharedInstance];
-        // Ambient: mixes with other audio and honours the silent switch.
+        // Ambient: mixes with other audio and honours the silent switch. The
+        // effects are decoration, not the point of the app, so the hardware
+        // switch wins over the in-game "Sound: On" toggle (Apple's guidance, and
+        // what players expect from a phone they have deliberately silenced).
         [session setCategory:AVAudioSessionCategoryAmbient error:&err];
         [session setActive:YES error:&err];
 
@@ -73,6 +76,14 @@ AudioHandle audio_load(const int16_t* samples, int frame_count, int sample_rate)
 
 void audio_play(AudioHandle handle) {
     if (!s_ready || handle < 0 || handle >= s_count) return;
+    // An interruption (phone call, Siri, another app taking the session) stops the
+    // engine and it does not restart itself; without this the game goes silent for
+    // the rest of the launch. Restarting is cheap and a no-op while it's running.
+    if (!s_engine.isRunning) {
+        NSError* err = nil;
+        [[AVAudioSession sharedInstance] setActive:YES error:&err];
+        if (![s_engine startAndReturnError:&err]) return;
+    }
     // Round-robin the pool: consecutive plays (even of the same effect) land on
     // different voices and overlap. Interrupt only kicks in when the pool wraps
     // back to a voice still playing a long clip, avoiding queued-latency buildup.
