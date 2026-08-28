@@ -17,6 +17,10 @@
 extern "C" {
 #endif
 
+// Load the bundled UI font. Must be called once after the window / GL context
+// exists (the backends also lazy-load on first text draw as a fallback).
+void gfx_font_init(void);
+
 void gfx_begin_frame(void);
 void gfx_end_frame(void);
 void gfx_clear(Color color);

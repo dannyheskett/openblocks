@@ -230,6 +230,7 @@ void render_init(void) {
     SetWindowMinSize(BASE_WIDTH, BASE_HEIGHT); // never render below 640x480
 #endif
     SetTargetFPS(60);
+    gfx_font_init();      // load the bundled UI font now that the GL context exists
 
 #ifdef OB_LANDSCAPE
     canvas = LoadRenderTexture(BASE_WIDTH, BASE_HEIGHT);
