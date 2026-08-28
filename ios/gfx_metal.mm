@@ -14,7 +14,7 @@
 
 #import "gfx.h"
 #import "gfx_metal.h"
-#include "font_atlas.h"  // raylib's default pixel font (generated), for parity
+#include "font_atlas.h"  // bundled Nunito font, baked (generated), for parity
 
 // --- Vertex layout ----------------------------------------------------------
 struct GVert { float x, y, u, v, r, g, b, a; }; // 32 bytes; matches packed MSL
@@ -66,13 +66,11 @@ fragment float4 f_main(VOut in [[stage_in]],
 
 // --- Setup ------------------------------------------------------------------
 static void build_font_atlas(void) {
-    // Upload raylib's default-font alpha atlas as a single-channel texture, with
-    // the bottom-right pixel forced opaque to serve as the "white texel" that
-    // solid primitives sample. Nearest sampling keeps the pixel font crisp (like
-    // raylib) and makes that texel read exactly 1.0.
+    // Upload the baked Nunito alpha atlas as a single-channel texture. The
+    // generator already forced the bottom-right 8x8 block opaque, which is the
+    // "white block" solid primitives sample (see uv_white).
     static unsigned char atlas[OB_FONT_ATLAS_W * OB_FONT_ATLAS_H];
     memcpy(atlas, ob_font_atlas_alpha, sizeof(atlas));
-    atlas[OB_FONT_ATLAS_W * OB_FONT_ATLAS_H - 1] = 255;
 
     MTLTextureDescriptor* td =
         [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
@@ -122,8 +120,8 @@ void gfx_metal_attach(CAMetalLayer* layer) {
     s_pipeline = [s_device newRenderPipelineStateWithDescriptor:pd error:&err];
 
     MTLSamplerDescriptor* sd = [[MTLSamplerDescriptor alloc] init];
-    sd.minFilter = MTLSamplerMinMagFilterNearest; // crisp pixel font, like raylib
-    sd.magFilter = MTLSamplerMinMagFilterNearest;
+    sd.minFilter = MTLSamplerMinMagFilterLinear; // smooth Nunito, matching raylib's bilinear
+    sd.magFilter = MTLSamplerMinMagFilterLinear;
     s_sampler = [s_device newSamplerStateWithDescriptor:sd];
 
     build_font_atlas();
@@ -138,9 +136,11 @@ void gfx_metal_set_viewport(int full_w, int full_h, int origin_x, int origin_y) 
 
 // --- Vertex helpers ---------------------------------------------------------
 static inline void uv_white(float* u, float* v) {
-    // Centre of the forced-opaque bottom-right texel (nearest-sampled).
-    *u = (OB_FONT_ATLAS_W - 0.5f) / (float)OB_FONT_ATLAS_W;
-    *v = (OB_FONT_ATLAS_H - 0.5f) / (float)OB_FONT_ATLAS_H;
+    // Centre of the forced-opaque bottom-right 8x8 block. Sampling 4px in from
+    // the corner keeps the LINEAR footprint entirely inside the white block, so
+    // solid fills read coverage 1.0 (a single texel would bleed under linear).
+    *u = (OB_FONT_ATLAS_W - 4.0f) / (float)OB_FONT_ATLAS_W;
+    *v = (OB_FONT_ATLAS_H - 4.0f) / (float)OB_FONT_ATLAS_H;
 }
 
 static inline void push(float x, float y, float u, float v, Color c) {
@@ -227,14 +227,13 @@ void gfx_line(int x1, int y1, int x2, int y2, Color c) {
     tri_solid(x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny, c);
 }
 
-// Text: a faithful port of raylib's DrawText -> DrawTextEx (spacing = fontSize /
-// baseSize as an int, scaleFactor = fontSize / baseSize), drawing each glyph's
-// atlas rect at its offset. Produces pixel-identical output to the other
-// platforms.
+// Text: port of raylib's DrawTextEx with the bundled Nunito font — scaleFactor =
+// fontSize/baseSize, and the same proportional tracking (fontSize*0.05) the
+// raylib backend uses, so the two platforms lay out identically regardless of
+// each atlas's bake size. Draws each glyph's atlas rect at its offset.
 void gfx_text(const char* text, int x, int y, int font_size, Color c) {
-    int fs = font_size < OB_FONT_BASE_SIZE ? OB_FONT_BASE_SIZE : font_size;
-    int spacing = fs / OB_FONT_BASE_SIZE;
-    float scale = (float)fs / OB_FONT_BASE_SIZE;
+    float scale = (float)font_size / OB_FONT_BASE_SIZE;
+    float spacing = font_size * 0.05f;
     float pen = (float)x;
     for (const unsigned char* p = (const unsigned char*)text; *p; p++) {
         int cp = *p;
@@ -253,12 +252,11 @@ void gfx_text(const char* text, int x, int y, int font_size, Color c) {
     }
 }
 
-// MeasureText -> MeasureTextEx: sum advances (recs.width + offsetX when
-// advanceX==0), scaled, plus inter-glyph spacing.
+// MeasureTextEx: sum advances (recs.width + offsetX when advanceX==0), scaled,
+// plus inter-glyph spacing. Matches gfx_text's tracking so centering is correct.
 int gfx_measure_text(const char* text, int font_size) {
-    int fs = font_size < OB_FONT_BASE_SIZE ? OB_FONT_BASE_SIZE : font_size;
-    int spacing = fs / OB_FONT_BASE_SIZE;
-    float scale = (float)fs / OB_FONT_BASE_SIZE;
+    float spacing = font_size * 0.05f;
+    float scale = (float)font_size / OB_FONT_BASE_SIZE;
     float tw = 0.0f;
     int count = 0;
     for (const unsigned char* p = (const unsigned char*)text; *p; p++) {
@@ -268,3 +266,6 @@ int gfx_measure_text(const char* text, int font_size) {
     }
     return (int)(tw * scale + (count > 0 ? (count - 1) : 0) * spacing);
 }
+
+// The atlas is built in gfx_metal_attach(); nothing to lazily load here.
+void gfx_font_init(void) {}
