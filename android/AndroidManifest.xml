@@ -27,8 +27,8 @@
              portrait-only (draw_game_portrait in render.c), so this property opts
              back into the pre-36 behaviour and keeps the portrait lock everywhere.
 
-             This is a deferral, not a fix. Google removes the opt-out at API 37 --
-             at that point the renderer needs a real landscape/large-screen layout. -->
+             This is a deferral, not a fix: Google removes the opt-out at API 37,
+             at which point the renderer needs a real large-screen layout. -->
         <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
                   android:value="true" />
 
