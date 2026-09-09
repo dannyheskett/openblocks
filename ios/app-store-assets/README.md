@@ -22,18 +22,26 @@ in the listing by filename, hence the `01-`/`02-` prefixes.
 
 ## Generating screenshots
 
-Same recipe as the Play assets: capture from a CI web build in headless
-Playwright with portrait forced via a `matchMedia('pointer: coarse')` shim, then
-resize to the exact target dimensions. See the notes in
-`android/play-assets/LISTING.md`.
+`scripts/gen_store_screenshots.mjs` captures this set and the two Play sets in
+one run, straight from a released web build at the exact target size:
 
-Two traps that cost time before:
+    npm i playwright-core
+    gh release download release-N -p '*-web-wasm.zip'
+    node scripts/gen_store_screenshots.mjs --src <unzipped-dir>
 
-- The `matchMedia` shim must include no-op `addListener`/`addEventListener`
-  members. A bare `{matches: true}` object crashes emscripten and the WebGL
-  context is lost.
-- Playwright clicks with the default 0ms delay are missed by the frame-sampled
-  touch input. Use `click({delay: 60})`.
+No resize step and no `matchMedia` shim: the browser context is created with
+`hasTouch`, which makes `matchMedia('(pointer: coarse)')` match natively, and
+that is exactly what `src/main.c` reads to select the portrait renderer.
+
+Traps the script already handles, worth knowing if it is ever rewritten:
+
+- A pointer move and press inside one frame records the gesture origin at the
+  PREVIOUS position, so the delta reads as a drag and the tap never fires.
+  Settle after moving, before pressing.
+- A press has to be held past a couple of frames. 60ms is silently dropped;
+  120ms is reliable.
+- Pause is a two-finger tap, which needs CDP `Input.dispatchTouchEvent`;
+  Playwright's mouse and touchscreen APIs are both single-pointer.
 
 ## Trademark
 
