@@ -12,7 +12,7 @@
     <!-- versionCode/versionName are intentionally absent: aapt/aapt2
          - -version-code/- -version-name only inject when the manifest has none,
          so hardcoding them here would silently pin every Play upload to 1. -->
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35" />
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
 
@@ -20,6 +20,17 @@
                  android:icon="@mipmap/ic_launcher"
                  android:hasCode="true"
                  android:allowBackup="false">
+
+        <!-- Apps targeting API 36 have android:screenOrientation ignored on any
+             display >= sw600dp: tablets and unfolded foldables get a resizable
+             window whatever the activity asks for. The Android draw path here is
+             portrait-only (draw_game_portrait in render.c), so this property opts
+             back into the pre-36 behaviour and keeps the portrait lock everywhere.
+
+             This is a deferral, not a fix. Google removes the opt-out at API 37 --
+             at that point the renderer needs a real landscape/large-screen layout. -->
+        <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+                  android:value="true" />
 
         <activity android:name="com.danheskett.openblocks.OpenblocksActivity"
                   android:label="openblocks"
