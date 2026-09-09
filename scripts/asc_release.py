@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+"""Push the store listing, and submit a build for review, on the App Store.
+
+The mirror of scripts/play_release.py, with the same three verbs, so one
+workflow can drive both stores the same way:
+
+    listing   subtitle / description / keywords / promo text + screenshots
+    release   attach an uploaded build to a version and submit it for review
+    status    the current version, its state, and the builds available
+
+What Apple does NOT expose: the App Privacy nutrition label (every endpoint
+404s) and creating the app record. Both are one-time console work.
+
+Two Apple-specific shapes worth knowing:
+
+* Screenshots upload in three steps -- reserve the asset, PUT the bytes to the
+  URL Apple hands back, then commit with an MD5 of what was sent.
+* Submitting is not one call. appStoreVersionSubmissions is gone; the current
+  flow is POST /reviewSubmissions, add a reviewSubmissionItem for the version,
+  then PATCH the submission to submitted=true.
+
+Credentials (same secrets the TestFlight upload already uses):
+  $ASC_KEY_P8       the .p8 private key contents
+  $ASC_KEY_ID       key id
+  $ASC_ISSUER_ID    issuer id
+
+Usage:
+  asc_release.py status
+  asc_release.py listing [--dry-run]
+  asc_release.py release --build N [--submit] [--phased] [--dry-run]
+
+`--build N` is the release number: the Makefile stamps CFBundleVersion with it
+and CFBundleShortVersionString with 1.0.N, so the version record is 1.0.N.
+"""
+import argparse
+import base64
+import hashlib
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from store_listing import ListingError, asc_listing  # noqa: E402
+
+BASE = "https://api.appstoreconnect.apple.com"
+BUNDLE_ID = "com.danheskett.openblocks"
+LOCALE = "en-US"
+
+REPO = Path(__file__).resolve().parent.parent
+SHOTS = REPO / "ios/app-store-assets/screenshots/iphone-6.9"
+# Apple's display-type enum for the 6.9" iPhone slot. That one set covers every
+# current iPhone; Apple scales it down for older devices.
+DISPLAY_TYPE = "APP_IPHONE_69"
+
+# A version in one of these states is still editable; anything else means Apple
+# has it and a new version record is needed.
+EDITABLE = {
+    "PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED",
+    "METADATA_REJECTED", "INVALID_BINARY",
+}
+
+
+def token():
+    key_pem = os.environ.get("ASC_KEY_P8")
+    key_id = os.environ.get("ASC_KEY_ID")
+    issuer = os.environ.get("ASC_ISSUER_ID")
+    if not (key_pem and key_id and issuer):
+        sys.exit("set ASC_KEY_P8, ASC_KEY_ID and ASC_ISSUER_ID")
+    key = serialization.load_pem_private_key(key_pem.encode(), password=None)
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
+    now = int(time.time())
+    hdr = b64(json.dumps({"alg": "ES256", "kid": key_id, "typ": "JWT"}).encode())
+    pay = b64(json.dumps({"iss": issuer, "iat": now, "exp": now + 900,
+                          "aud": "appstoreconnect-v1"}).encode())
+    sig = key.sign(hdr + b"." + pay, ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(sig)
+    return (hdr + b"." + pay + b"." + b64(r.to_bytes(32, "big") + s.to_bytes(32, "big"))).decode()
+
+
+class ASC:
+    def __init__(self, dry_run=False):
+        self.dry_run = dry_run
+
+    def call(self, method, path, body=None, mutating=None):
+        if mutating is None:
+            mutating = method != "GET"
+        if self.dry_run and mutating:
+            shown = f" {json.dumps(body)[:400]}" if body is not None else ""
+            print(f"  [dry-run] {method} {path}{shown}")
+            return {}
+        url = path if path.startswith("http") else BASE + path
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode() if body is not None else None,
+            method=method,
+            headers={"Authorization": "Bearer " + token(),
+                     "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req) as r:
+                raw = r.read()
+            return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            sys.exit(f"HTTP {e.code} on {method} {path}\n{e.read().decode()[:1500]}")
+
+    def put_bytes(self, op, blob):
+        """One upload operation from a reserved asset: raw PUT, Apple's headers."""
+        if self.dry_run:
+            print(f"  [dry-run] {op['method']} <upload {len(blob)} bytes>")
+            return
+        chunk = blob[op["offset"]:op["offset"] + op["length"]]
+        req = urllib.request.Request(op["url"], data=chunk, method=op["method"])
+        for h in op.get("requestHeaders", []):
+            req.add_header(h["name"], h["value"])
+        try:
+            urllib.request.urlopen(req).read()
+        except urllib.error.HTTPError as e:
+            sys.exit(f"HTTP {e.code} uploading asset\n{e.read().decode()[:800]}")
+
+    def app_id(self):
+        r = self.call("GET", f"/v1/apps?filter[bundleId]={BUNDLE_ID}")
+        data = r.get("data") or []
+        if not data:
+            sys.exit(f"no app record for {BUNDLE_ID}; creating one is console-only")
+        return data[0]["id"]
+
+    def editable_version(self, app):
+        """The version record Apple will still let us change, if there is one."""
+        r = self.call("GET", f"/v1/apps/{app}/appStoreVersions?limit=10")
+        for v in r.get("data", []):
+            if v["attributes"]["appStoreState"] in EDITABLE:
+                return v
+        return None
+
+
+def cmd_status(asc, args):
+    app = asc.app_id()
+    print(f"app {app} ({BUNDLE_ID})")
+    versions = asc.call("GET", f"/v1/apps/{app}/appStoreVersions?limit=5")
+    for v in versions.get("data", []):
+        a = v["attributes"]
+        print(f"  version {a['versionString']:<10} {a['appStoreState']}")
+    builds = asc.call("GET", f"/v1/builds?filter[app]={app}&limit=5")
+    for b in builds.get("data", []):
+        a = b["attributes"]
+        print(f"  build   {a['version']:<10} {a.get('processingState')}")
+    return 0
+
+
+def cmd_listing(asc, args):
+    try:
+        text = asc_listing()
+    except ListingError as e:
+        sys.exit(f"error: {e}")
+    shots = sorted(SHOTS.glob("*.png"))
+    if not shots:
+        sys.exit(f"no screenshots in {SHOTS}")
+
+    app = asc.app_id()
+    version = asc.editable_version(app)
+    if not version and not asc.dry_run:
+        sys.exit("no editable version; run `release --build N` first to create one")
+    version_id = version["id"] if version else "<version>"
+
+    # Subtitle lives on the app INFO localization (it survives across versions);
+    # description, keywords and promo text live on the VERSION localization.
+    infos = asc.call("GET", f"/v1/apps/{app}/appInfos")
+    for info in infos.get("data", []):
+        locs = asc.call("GET", f"/v1/appInfos/{info['id']}/appInfoLocalizations")
+        for loc in locs.get("data", []):
+            if loc["attributes"]["locale"] == LOCALE:
+                asc.call("PATCH", f"/v1/appInfoLocalizations/{loc['id']}",
+                         {"data": {"type": "appInfoLocalizations", "id": loc["id"],
+                                   "attributes": {"subtitle": text["subtitle"]}}})
+                print(f"  subtitle: {len(text['subtitle'])}ch")
+                break
+
+    locs = asc.call("GET", f"/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations") \
+        if version else {}
+    loc_id = None
+    for loc in locs.get("data", []):
+        if loc["attributes"]["locale"] == LOCALE:
+            loc_id = loc["id"]
+            break
+    if loc_id is None and not asc.dry_run:
+        sys.exit(f"no {LOCALE} localization on version {version_id}")
+    asc.call("PATCH", f"/v1/appStoreVersionLocalizations/{loc_id or '<loc>'}",
+             {"data": {"type": "appStoreVersionLocalizations", "id": loc_id or "<loc>",
+                       "attributes": {"description": text["description"],
+                                      "keywords": text["keywords"],
+                                      "promotionalText": text["promotionalText"]}}})
+    print(f"  text: description={len(text['description'])}ch "
+          f"keywords={len(text['keywords'])}ch promo={len(text['promotionalText'])}ch")
+
+    upload_screenshots(asc, loc_id, shots)
+    return 0
+
+
+def upload_screenshots(asc, loc_id, shots):
+    """Replace the 6.9" screenshot set. Reserve -> PUT bytes -> commit with MD5."""
+    sets = asc.call("GET",
+                    f"/v1/appStoreVersionLocalizations/{loc_id or '<loc>'}/appScreenshotSets") \
+        if loc_id else {}
+    set_id = None
+    for s in sets.get("data", []):
+        if s["attributes"]["screenshotDisplayType"] == DISPLAY_TYPE:
+            set_id = s["id"]
+            break
+
+    if set_id:
+        # Clear the slot first: uploads append, so re-running would pile up
+        # duplicates against Apple's 10-per-set ceiling.
+        existing = asc.call("GET", f"/v1/appScreenshotSets/{set_id}/appScreenshots")
+        for shot in existing.get("data", []):
+            asc.call("DELETE", f"/v1/appScreenshots/{shot['id']}")
+    else:
+        created = asc.call("POST", "/v1/appScreenshotSets", {
+            "data": {"type": "appScreenshotSets",
+                     "attributes": {"screenshotDisplayType": DISPLAY_TYPE},
+                     "relationships": {"appStoreVersionLocalization": {
+                         "data": {"type": "appStoreVersionLocalizations",
+                                  "id": loc_id or "<loc>"}}}}})
+        set_id = (created.get("data") or {}).get("id", "<set>")
+
+    for path in shots:
+        blob = path.read_bytes()
+        reserved = asc.call("POST", "/v1/appScreenshots", {
+            "data": {"type": "appScreenshots",
+                     "attributes": {"fileName": path.name, "fileSize": len(blob)},
+                     "relationships": {"appScreenshotSet": {
+                         "data": {"type": "appScreenshotSets", "id": set_id}}}}})
+        if asc.dry_run:
+            print(f"  [dry-run] upload {path.name} ({len(blob)} bytes)")
+            continue
+        data = reserved["data"]
+        for op in data["attributes"]["uploadOperations"]:
+            asc.put_bytes(op, blob)
+        asc.call("PATCH", f"/v1/appScreenshots/{data['id']}", {
+            "data": {"type": "appScreenshots", "id": data["id"],
+                     "attributes": {"uploaded": True,
+                                    "sourceFileChecksum": hashlib.md5(blob).hexdigest()}}})
+        print(f"  screenshot {path.name}")
+
+
+def cmd_release(asc, args):
+    app = asc.app_id()
+    version_string = f"1.0.{args.build}"
+
+    version = asc.editable_version(app)
+    if version:
+        current = version["attributes"]["versionString"]
+        if current != version_string:
+            # The version string is what CUSTOMERS see, and Apple expects it to
+            # match CFBundleShortVersionString. A git tag name has ended up here
+            # before, so correct it rather than leaving it.
+            asc.call("PATCH", f"/v1/appStoreVersions/{version['id']}",
+                     {"data": {"type": "appStoreVersions", "id": version["id"],
+                               "attributes": {"versionString": version_string}}})
+            print(f"  version string {current} -> {version_string}")
+        version_id = version["id"]
+    else:
+        created = asc.call("POST", "/v1/appStoreVersions", {
+            "data": {"type": "appStoreVersions",
+                     "attributes": {"platform": "IOS", "versionString": version_string},
+                     "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
+        version_id = (created.get("data") or {}).get("id", "<version>")
+        print(f"  created version {version_string}")
+
+    # Match on CFBundleVersion, which the Makefile stamps with the release number.
+    builds = asc.call("GET", f"/v1/builds?filter[app]={app}&filter[version]={args.build}")
+    data = builds.get("data") or []
+    if not data and not asc.dry_run:
+        sys.exit(f"no build with CFBundleVersion {args.build} in App Store Connect; "
+                 f"the release workflow uploads it, and Apple takes 5-15 min to process it")
+    build_id = data[0]["id"] if data else "<build>"
+    asc.call("PATCH", f"/v1/appStoreVersions/{version_id}/relationships/build",
+             {"data": {"type": "builds", "id": build_id}})
+    print(f"  build {args.build} attached to {version_string}")
+
+    if args.phased:
+        asc.call("POST", "/v1/appStoreVersionPhasedReleases", {
+            "data": {"type": "appStoreVersionPhasedReleases",
+                     "attributes": {"phasedReleaseState": "INACTIVE"},
+                     "relationships": {"appStoreVersion": {
+                         "data": {"type": "appStoreVersions", "id": version_id}}}}})
+        print("  phased release enabled")
+
+    if not args.submit:
+        print("  not submitting (pass --submit to send it to review)")
+        return 0
+
+    submission = asc.call("POST", "/v1/reviewSubmissions", {
+        "data": {"type": "reviewSubmissions",
+                 "attributes": {"platform": "IOS"},
+                 "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
+    sub_id = (submission.get("data") or {}).get("id", "<submission>")
+    asc.call("POST", "/v1/reviewSubmissionItems", {
+        "data": {"type": "reviewSubmissionItems",
+                 "relationships": {
+                     "reviewSubmission": {"data": {"type": "reviewSubmissions", "id": sub_id}},
+                     "appStoreVersion": {"data": {"type": "appStoreVersions",
+                                                  "id": version_id}}}}})
+    asc.call("PATCH", f"/v1/reviewSubmissions/{sub_id}",
+             {"data": {"type": "reviewSubmissions", "id": sub_id,
+                       "attributes": {"submitted": True}}})
+    print(f"  submitted {version_string} for review")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="verb", required=True)
+
+    sub.add_parser("status", help="current version, state and builds")
+
+    p_listing = sub.add_parser("listing", help="push listing text + screenshots")
+    p_listing.add_argument("--dry-run", action="store_true")
+
+    p_rel = sub.add_parser("release", help="attach a build to a version, optionally submit")
+    p_rel.add_argument("--build", type=int, required=True,
+                       help="release number = CFBundleVersion; the version becomes 1.0.N")
+    p_rel.add_argument("--submit", action="store_true", help="send it to App Review")
+    p_rel.add_argument("--phased", action="store_true", help="enable phased release")
+    p_rel.add_argument("--dry-run", action="store_true")
+
+    args = ap.parse_args()
+    asc = ASC(dry_run=getattr(args, "dry_run", False))
+    return {"status": cmd_status, "listing": cmd_listing, "release": cmd_release}[args.verb](
+        asc, args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
