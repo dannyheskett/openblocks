@@ -8,9 +8,11 @@ name: release
 # used everywhere, so a later push to main does not change what gets tagged. A GITHUB_TOKEN
 # tag push starts no workflow, so this never retriggers itself.
 #
-# This workflow ends at the GitHub Release (plus the Play upload when enabled). It does NOT
-# touch danheskett.com: the site pulls published web bundles from releases/latest at its own
-# build time, so no repo here holds a cross-repo write token.
+# This workflow ends at the GitHub Release, plus the Play internal-track upload and, on iOS,
+# a submission to App Review (see submit-appstore at the bottom). Play's public tracks are
+# deliberately NOT reached from here -- that needs store-release.yml. It does NOT touch
+# danheskett.com: the site pulls published web bundles from releases/latest at its own build
+# time, so no repo here holds a cross-repo write token.
 #
 # `publish` and `publish-play` cannot use a plain `needs:` gate, because a skipped job
 # (a platform this repo does not build) would skip its dependents too. They enumerate the
@@ -542,3 +544,67 @@ jobs:
         run: |
           python3 -m pip install --quiet cryptography
           python3 scripts/testflight_notes.py
+
+  # ---------------------------------------------------------------------------
+  # Submit the release to App Review, so a merge to main reaches the App Store
+  # without a second, manual action.
+  #
+  # This runs AFTER testflight-notes, not in parallel with it: both PATCH the
+  # same version's localization, and testflight-notes also waits out Apple's
+  # 5-15 minute processing window, which this job needs to have finished anyway
+  # (there is no build to attach until it has).
+  #
+  # Apple allows exactly ONE submission in flight per app. --skip-if-busy makes
+  # that a no-op with an explanatory line rather than a failure: the release
+  # itself succeeded, and the next one carries the change. Without it, merging
+  # twice inside a review cycle would red a release for nothing being wrong.
+  #
+  # `store-release.yml` remains the way to submit a SPECIFIC build on demand, and
+  # is still the only way to reach Play's public tracks.
+  # ---------------------------------------------------------------------------
+  submit-appstore:
+    if: ${{ !inputs.dry_run && needs.testflight-notes.result == 'success' }}
+    name: submit the build to App Review
+    needs: [prepare, testflight-notes]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the JWT dependency
+        run: python3 -m pip install --quiet cryptography
+      - name: Gate on the API-key secrets
+        id: gate
+        env:
+          K: ${{ secrets.ASC_KEY_P8 }}
+          I: ${{ secrets.ASC_KEY_ID }}
+          S: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          if [ -n "$K" ] && [ -n "$I" ] && [ -n "$S" ]; then echo "go=true" >> "$GITHUB_OUTPUT";
+          else echo "go=false" >> "$GITHUB_OUTPUT"; echo "No ASC_* secrets; skipping."; fi
+      # The listing is pushed from the repo on the way past, so the description
+      # and screenshots Apple reviews are the ones committed here rather than
+      # whatever was last typed into the console.
+      - name: Push the store listing
+        if: steps.gate.outputs.go == 'true'
+        env:
+          ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: python3 scripts/asc_release.py listing
+      - name: Create the version, attach the build, submit
+        if: steps.gate.outputs.go == 'true'
+        env:
+          ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD: ${{ needs.prepare.outputs.version }}
+          # Apple requires "What's New" on an update and rejects a submission
+          # without it. Unattended, the commit subject is the only sentence that
+          # describes what changed.
+          WHATS_NEW: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          notes=$(printf '%s' "$WHATS_NEW" | head -1)
+          [ -n "$notes" ] || notes="Bug fixes and improvements."
+          python3 scripts/asc_release.py release \
+            --build "$BUILD" --submit --skip-if-busy --whats-new "$notes"
