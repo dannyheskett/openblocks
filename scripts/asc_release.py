@@ -30,9 +30,10 @@ Usage:
   asc_release.py release --build N [--submit] [--phased] [--dry-run] \
                          [--whats-new TEXT] [--skip-if-busy]
 
---whats-new is required by Apple on an update; release.yml passes the commit
-subject. --skip-if-busy exits 0 when a version already holds Apple's single
-submission slot, which is what makes an unattended submission safe.
+--whats-new is required by Apple on an update and defaults to a standard line;
+override it when a release warrants real copy. --skip-if-busy exits 0 when a
+version already holds Apple's single submission slot, which is what makes an
+unattended submission safe.
 
 `--build N` is the release number: the Makefile stamps CFBundleVersion with it
 and CFBundleShortVersionString with 1.0.N, so the version record is 1.0.N.
@@ -64,6 +65,12 @@ SHOTS = REPO / "ios/app-store-assets/screenshots/iphone-6.9"
 # Apple's display-type enum for the 6.9" iPhone slot. That one set covers every
 # current iPhone; Apple scales it down for older devices.
 DISPLAY_TYPE = "APP_IPHONE_69"
+
+# Apple requires "What's New" on every update. A commit subject is written for
+# other developers ("ios: submit each release to App Review automatically"), not
+# for customers, so releases carry one deliberately boring standard line instead.
+# Pass --whats-new to say something real when a release actually warrants it.
+DEFAULT_WHATS_NEW = "Various minor bug fixes & performance enhancements"
 
 # A version in one of these states is still editable; anything else means Apple
 # has it and a new version record is needed.
@@ -393,8 +400,9 @@ def main():
                        help="release number = CFBundleVersion; the version becomes 1.0.N")
     p_rel.add_argument("--submit", action="store_true", help="send it to App Review")
     p_rel.add_argument("--phased", action="store_true", help="enable phased release")
-    p_rel.add_argument("--whats-new",
-                       help="'What's New' text; Apple requires it on an update")
+    p_rel.add_argument("--whats-new", default=DEFAULT_WHATS_NEW,
+                       help=f"'What's New' text; Apple requires it on an update "
+                            f"(default: {DEFAULT_WHATS_NEW!r})")
     p_rel.add_argument("--skip-if-busy", action="store_true",
                        help="exit 0 if a version already holds Apple's submission slot")
     p_rel.add_argument("--dry-run", action="store_true")

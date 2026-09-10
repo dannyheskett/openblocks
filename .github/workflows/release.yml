@@ -598,13 +598,11 @@ jobs:
           ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           BUILD: ${{ needs.prepare.outputs.version }}
-          # Apple requires "What's New" on an update and rejects a submission
-          # without it. Unattended, the commit subject is the only sentence that
-          # describes what changed.
-          WHATS_NEW: ${{ github.event.head_commit.message }}
         run: |
-          set -euo pipefail
-          notes=$(printf '%s' "$WHATS_NEW" | head -1)
-          [ -n "$notes" ] || notes="Bug fixes and improvements."
+          # "What's New" defaults to a standard line inside asc_release.py. It is
+          # deliberately not the commit subject: that is written for developers,
+          # not for customers, and it would put text like
+          # "ios: submit each release to App Review automatically (#89)" on the
+          # public App Store page.
           python3 scripts/asc_release.py release \
-            --build "$BUILD" --submit --skip-if-busy --whats-new "$notes"
+            --build "$BUILD" --submit --skip-if-busy
