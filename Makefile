@@ -139,8 +139,8 @@ $(OUT_MAC): $(MAC_OBJ)
 # ---------------------------------------------------------------------------
 ANDROID_API          ?= 24
 ANDROID_ABI          := arm64-v8a
-ANDROID_BUILD_TOOLS  ?= 35.0.0
-ANDROID_PLATFORM_VER ?= 35
+ANDROID_BUILD_TOOLS  ?= 36.0.0
+ANDROID_PLATFORM_VER ?= 36
 
 # versionCode must be a monotonically increasing integer for Play uploads; drive
 # it off the release number (unique + monotonic). Clamp to >=1 for local builds
