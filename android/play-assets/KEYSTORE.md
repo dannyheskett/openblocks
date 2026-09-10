@@ -44,8 +44,13 @@ New repository secret**.)
 
 The next release (any push to `main`, or a manual `release` run) will detect the
 secret and produce `openblocks-<version>-android.aab` alongside the sideload
-APK. Download it from the release assets (or the `android` CI artifact) and
-upload it in the Play Console.
+APK, and `release.yml` uploads it to the Play **internal** track on its own --
+no manual step, and no download.
+
+Getting that build in front of the public is a separate, deliberate action:
+dispatch the `store-release` workflow, which promotes an already-uploaded
+versionCode onto the track you pick and can push the listing at the same time.
+It defaults to a dry run.
 
 ## Note on Play App Signing enrollment
 
