@@ -207,8 +207,18 @@ def cmd_listing(asc, args):
 
     # Subtitle lives on the app INFO localization (it survives across versions);
     # description, keywords and promo text live on the VERSION localization.
+    #
+    # An app that is already on sale has TWO appInfo records: the live one, which
+    # is frozen, and an editable one for the pending version. Patching the first
+    # that happens to carry an en-US localization can hit the live one, which
+    # answers 409 ENTITY_ERROR.ATTRIBUTE.INVALID.INVALID_STATE, "The field
+    # 'subtitle' can not be modified in the current state." Select by state.
     infos = asc.call("GET", f"/v1/apps/{app}/appInfos")
-    for info in infos.get("data", []):
+    editable = [i for i in infos.get("data", [])
+                if i["attributes"]["appStoreState"] in EDITABLE]
+    if not editable:
+        print("  subtitle: skipped (no editable appInfo; nothing pending)")
+    for info in editable:
         locs = asc.call("GET", f"/v1/appInfos/{info['id']}/appInfoLocalizations")
         for loc in locs.get("data", []):
             if loc["attributes"]["locale"] == LOCALE:
