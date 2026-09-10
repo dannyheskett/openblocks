@@ -62,9 +62,13 @@ LOCALE = "en-US"
 
 REPO = Path(__file__).resolve().parent.parent
 SHOTS = REPO / "ios/app-store-assets/screenshots/iphone-6.9"
-# Apple's display-type enum for the 6.9" iPhone slot. That one set covers every
-# current iPhone; Apple scales it down for older devices.
-DISPLAY_TYPE = "APP_IPHONE_69"
+# Apple's screenshot display-type enum. There is no APP_IPHONE_69: the enum tops
+# out at APP_IPHONE_67, which is the slot that takes 1290x2796 -- the size the
+# 6.9" devices share with the 6.7" ones, and what ios/app-store-assets ships.
+# Sending APP_IPHONE_69 earns a 409 ENTITY_ERROR.ATTRIBUTE.TYPE listing every
+# valid value. One set at this size covers every current iPhone; Apple scales it
+# down for older devices.
+DISPLAY_TYPE = "APP_IPHONE_67"
 
 # Apple requires "What's New" on every update. A commit subject is written for
 # other developers ("ios: submit each release to App Review automatically"), not
