@@ -2,9 +2,13 @@
 
 Copy/paste these into the Play Console (**Grow → Store presence → Main store
 listing**, plus **Store settings** for category). The images in this folder are
-the shipped assets — they were generated once and are now committed artifacts.
-The generator was removed after the assets landed; recover it from history
-(`git log -- scripts/gen_play_assets.py`) if they ever need regenerating.
+the shipped assets.
+
+The screenshots regenerate with `scripts/gen_store_screenshots.mjs`, which is
+committed because the portrait UI changes and stale screenshots are a listing
+accuracy problem. The icon and feature graphic were generated once and are now
+fixed artifacts; recover their generator from history if needed
+(`git log -- scripts/gen_play_assets.py`).
 
 ## Assets (this folder)
 
@@ -41,9 +45,13 @@ PURE CLASSIC GAMEPLAY
 • Wall kicks for smooth, forgiving rotation
 • Pause anytime and pick up where you left off
 
-BUILT RIGHT
-• Large on-screen buttons tuned for one-handed play
+CONTROLS THAT GET OUT OF THE WAY
+• Drag to slide a piece, tap to rotate
+• Flick down to drop it instantly, or drag down slowly to guide it
+• Prefer buttons? Turn on the on-screen control pad in the menu
 • Crisp, minimal visuals that stay out of your way
+
+BUILT RIGHT
 • Fully offline — perfect for flights, commutes, anywhere
 • Tiny download, easy on your battery
 
@@ -75,5 +83,15 @@ No dark patterns, no "energy" timers, no paywalled pieces. Just the timeless fal
 
 Live on the listing (pushed via the Play API): `screenshots/phone/` (4x
 1080x1920) in the phone slot, `screenshots/tablet/` (4x 2160x3840) in both the
-7-inch and 10-inch tablet slots. Captured from the CI web build's portrait
-renderer (pixel-identical to Android) in a headless browser.
+7-inch and 10-inch tablet slots.
+
+Captured from a released web build's portrait renderer -- the same
+src/render_portrait.c that Android runs -- in a headless browser:
+
+    npm i playwright-core
+    gh release download release-N -p '*-web-wasm.zip'
+    node scripts/gen_store_screenshots.mjs --src <unzipped-dir>
+
+That one command also refreshes the App Store set under
+`ios/app-store-assets/screenshots/`, so the two listings cannot drift apart.
+Regenerate whenever the portrait layout, HUD or font changes.
