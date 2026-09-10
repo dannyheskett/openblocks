@@ -206,6 +206,16 @@ def cmd_listing(asc, args):
     app = asc.app_id()
     version = asc.editable_version(app)
     if not version and not asc.dry_run:
+        # There is nothing to write a listing onto. Unattended that is normal --
+        # a version already in review holds Apple's only submission slot, so the
+        # release step ahead of this one skipped too, and this must skip for the
+        # same reason rather than failing the release behind it.
+        if args.skip_if_busy:
+            busy = asc.in_flight_version(app)
+            where = (f"{busy['attributes']['versionString']} is "
+                     f"{busy['attributes']['appStoreState']}") if busy else "nothing is pending"
+            print(f"  no editable version ({where}); skipping the listing")
+            return 0
         sys.exit("no editable version; run `release --build N` first to create one")
     version_id = version["id"] if version else "<version>"
 
@@ -407,6 +417,8 @@ def main():
     sub.add_parser("status", help="current version, state and builds")
 
     p_listing = sub.add_parser("listing", help="push listing text + screenshots")
+    p_listing.add_argument("--skip-if-busy", action="store_true",
+                           help="exit 0 when there is no editable version to write onto")
     p_listing.add_argument("--dry-run", action="store_true")
 
     p_rel = sub.add_parser("release", help="attach a build to a version, optionally submit")

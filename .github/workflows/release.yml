@@ -616,7 +616,10 @@ jobs:
           ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
           ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: python3 scripts/asc_release.py listing
+        # --skip-if-busy for the same reason the steps either side of it carry
+        # it: when a version is already in review there is no editable version to
+        # write a listing onto, and the whole job has to no-op together.
+        run: python3 scripts/asc_release.py listing --skip-if-busy
       - name: Submit for review
         if: steps.gate.outputs.go == 'true'
         env:
