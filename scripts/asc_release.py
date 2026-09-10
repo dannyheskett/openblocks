@@ -27,7 +27,12 @@ Credentials (same secrets the TestFlight upload already uses):
 Usage:
   asc_release.py status
   asc_release.py listing [--dry-run]
-  asc_release.py release --build N [--submit] [--phased] [--dry-run]
+  asc_release.py release --build N [--submit] [--phased] [--dry-run] \
+                         [--whats-new TEXT] [--skip-if-busy]
+
+--whats-new is required by Apple on an update; release.yml passes the commit
+subject. --skip-if-busy exits 0 when a version already holds Apple's single
+submission slot, which is what makes an unattended submission safe.
 
 `--build N` is the release number: the Makefile stamps CFBundleVersion with it
 and CFBundleShortVersionString with 1.0.N, so the version record is 1.0.N.
@@ -67,6 +72,15 @@ EDITABLE = {
     "METADATA_REJECTED", "INVALID_BINARY",
 }
 
+# Apple allows exactly one submission in flight per app. A version in any of
+# these states is holding that slot, so a second submission would be refused.
+# Unattended callers (--skip-if-busy) treat that as "nothing to do" rather than
+# an error: the next release will carry the change anyway.
+IN_FLIGHT = {
+    "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_APPLE_RELEASE",
+    "PENDING_DEVELOPER_RELEASE", "PROCESSING_FOR_APP_STORE", "READY_FOR_REVIEW",
+}
+
 
 def token():
     key_pem = os.environ.get("ASC_KEY_P8")
@@ -83,6 +97,13 @@ def token():
     sig = key.sign(hdr + b"." + pay, ec.ECDSA(hashes.SHA256()))
     r, s = decode_dss_signature(sig)
     return (hdr + b"." + pay + b"." + b64(r.to_bytes(32, "big") + s.to_bytes(32, "big"))).decode()
+
+
+# --dry-run stands in an "<id>" placeholder wherever a resource would have been
+# created. Reads are still real, so anything that would dereference one has to
+# check first.
+def is_placeholder(value):
+    return isinstance(value, str) and value.startswith("<")
 
 
 class ASC:
@@ -136,6 +157,14 @@ class ASC:
         r = self.call("GET", f"/v1/apps/{app}/appStoreVersions?limit=10")
         for v in r.get("data", []):
             if v["attributes"]["appStoreState"] in EDITABLE:
+                return v
+        return None
+
+    def in_flight_version(self, app):
+        """A version already occupying Apple's single submission slot, if any."""
+        r = self.call("GET", f"/v1/apps/{app}/appStoreVersions?limit=10")
+        for v in r.get("data", []):
+            if v["attributes"]["appStoreState"] in IN_FLIGHT:
                 return v
         return None
 
@@ -253,6 +282,18 @@ def cmd_release(asc, args):
     app = asc.app_id()
     version_string = f"1.0.{args.build}"
 
+    # Apple's submission slot holds one version at a time. An unattended caller
+    # says so and stops at exit 0: the release it was called for still shipped,
+    # and the next one will carry these changes. Failing here would red a release
+    # for something that is not wrong.
+    if args.skip_if_busy:
+        busy = asc.in_flight_version(app)
+        if busy:
+            a = busy["attributes"]
+            print(f"  {a['versionString']} is {a['appStoreState']}; "
+                  f"leaving it alone and skipping {version_string}")
+            return 0
+
     version = asc.editable_version(app)
     if version:
         current = version["attributes"]["versionString"]
@@ -283,6 +324,29 @@ def cmd_release(asc, args):
     asc.call("PATCH", f"/v1/appStoreVersions/{version_id}/relationships/build",
              {"data": {"type": "builds", "id": build_id}})
     print(f"  build {args.build} attached to {version_string}")
+
+    # "What's New" is REQUIRED on an update, and a submission without it fails
+    # Apple's validation. An unattended release has no human to type it, so it
+    # comes from the release notes the caller passes.
+    if args.whats_new:
+        # A dry run never created the version, so version_id is a placeholder and
+        # there is nothing real to look the localization up on. GETs are not
+        # suppressed by --dry-run (they are how current state is read), so this
+        # has to be skipped explicitly rather than left to fail.
+        loc_id = None
+        if not is_placeholder(version_id):
+            locs = asc.call(
+                "GET", f"/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations")
+            for loc in locs.get("data", []):
+                if loc["attributes"]["locale"] == LOCALE:
+                    loc_id = loc["id"]
+                    break
+            if loc_id is None:
+                sys.exit(f"no {LOCALE} localization on {version_string} to hold whatsNew")
+        asc.call("PATCH", f"/v1/appStoreVersionLocalizations/{loc_id or '<loc>'}",
+                 {"data": {"type": "appStoreVersionLocalizations", "id": loc_id or "<loc>",
+                           "attributes": {"whatsNew": args.whats_new}}})
+        print(f"  whats-new: {len(args.whats_new)}ch")
 
     if args.phased:
         asc.call("POST", "/v1/appStoreVersionPhasedReleases", {
@@ -329,6 +393,10 @@ def main():
                        help="release number = CFBundleVersion; the version becomes 1.0.N")
     p_rel.add_argument("--submit", action="store_true", help="send it to App Review")
     p_rel.add_argument("--phased", action="store_true", help="enable phased release")
+    p_rel.add_argument("--whats-new",
+                       help="'What's New' text; Apple requires it on an update")
+    p_rel.add_argument("--skip-if-busy", action="store_true",
+                       help="exit 0 if a version already holds Apple's submission slot")
     p_rel.add_argument("--dry-run", action="store_true")
 
     args = ap.parse_args()
