@@ -49,6 +49,12 @@ jobs:
           java-version: '17'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        # The action's default package list includes the legacy `tools`
+        # package, which current cmdline-tools no longer carry ("Failed to
+        # find package 'tools'"), failing SDK setup. The NDK, build-tools and
+        # platform are installed explicitly below.
+        with:
+          packages: platform-tools
       - name: Install NDK + build-tools + platform
         run: |
           sdkmanager --install "ndk;${NDK_VERSION}" \
