@@ -43,6 +43,7 @@ import base64
 import hashlib
 import json
 import os
+import plistlib
 import sys
 import time
 import urllib.error
@@ -57,18 +58,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from store_listing import ListingError, asc_listing  # noqa: E402
 
 BASE = "https://api.appstoreconnect.apple.com"
-BUNDLE_ID = "com.danheskett.openblocks"
+REPO = Path(__file__).resolve().parent.parent
 LOCALE = "en-US"
 
-REPO = Path(__file__).resolve().parent.parent
-SHOTS = REPO / "ios/app-store-assets/screenshots/iphone-6.9"
-# Apple's screenshot display-type enum. There is no APP_IPHONE_69: the enum tops
-# out at APP_IPHONE_67, which is the slot that takes 1290x2796 -- the size the
-# 6.9" devices share with the 6.7" ones, and what ios/app-store-assets ships.
-# Sending APP_IPHONE_69 earns a 409 ENTITY_ERROR.ATTRIBUTE.TYPE listing every
-# valid value. One set at this size covers every current iPhone; Apple scales it
-# down for older devices.
-DISPLAY_TYPE = "APP_IPHONE_67"
+# The app's identity and the device families it ships for come from its own
+# Info.plist, so this file is the same in every game repo.
+INFO_PLIST = plistlib.loads((REPO / "ios/Info.plist").read_bytes())
+BUNDLE_ID = INFO_PLIST["CFBundleIdentifier"]
+
+# One screenshot set per device family the app declares (UIDeviceFamily: 1 is
+# iPhone, 2 is iPad). Apple requires a set for each: an app that declares iPad
+# cannot be submitted without iPad screenshots.
+#
+# Apple's display-type enum is not named after the marketing sizes. There is no
+# APP_IPHONE_69: the enum tops out at APP_IPHONE_67, which is the slot that
+# takes 1290x2796 -- the size the 6.9" devices share with the 6.7" ones.
+# Sending a name Apple does not know earns a 409 ENTITY_ERROR.ATTRIBUTE.TYPE
+# that helpfully lists every valid value, which is how these two were picked.
+# One set per family covers every current device; Apple scales them down.
+FAMILY_SHOTS = {
+    1: ("APP_IPHONE_67",         REPO / "ios/app-store-assets/screenshots/iphone-6.9"),
+    2: ("APP_IPAD_PRO_3GEN_129", REPO / "ios/app-store-assets/screenshots/ipad-13"),
+}
+SHOT_SETS = [FAMILY_SHOTS[f] for f in INFO_PLIST.get("UIDeviceFamily", [1]) if f in FAMILY_SHOTS]
 
 # Apple requires "What's New" on every update. A commit subject is written for
 # other developers ("ios: submit each release to App Review automatically"), not
@@ -199,9 +211,12 @@ def cmd_listing(asc, args):
         text = asc_listing()
     except ListingError as e:
         sys.exit(f"error: {e}")
-    shots = sorted(SHOTS.glob("*.png"))
-    if not shots:
-        sys.exit(f"no screenshots in {SHOTS}")
+    shot_sets = []
+    for display, folder in SHOT_SETS:
+        shots = sorted(folder.glob("*.png"))
+        if not shots:
+            sys.exit(f"no screenshots for {display} in {folder}")
+        shot_sets.append((display, shots))
 
     app = asc.app_id()
     version = asc.editable_version(app)
@@ -259,18 +274,22 @@ def cmd_listing(asc, args):
     print(f"  text: description={len(text['description'])}ch "
           f"keywords={len(text['keywords'])}ch promo={len(text['promotionalText'])}ch")
 
-    upload_screenshots(asc, loc_id, shots)
+    for display, shots in shot_sets:
+        upload_screenshots(asc, loc_id, shots, display)
     return 0
 
 
-def upload_screenshots(asc, loc_id, shots):
-    """Replace the 6.9" screenshot set. Reserve -> PUT bytes -> commit with MD5."""
+def upload_screenshots(asc, loc_id, shots, display_type):
+    """Replace one device family's screenshot set.
+
+    Reserve -> PUT bytes -> commit with MD5, per file.
+    """
     sets = asc.call("GET",
                     f"/v1/appStoreVersionLocalizations/{loc_id or '<loc>'}/appScreenshotSets") \
         if loc_id else {}
     set_id = None
     for s in sets.get("data", []):
-        if s["attributes"]["screenshotDisplayType"] == DISPLAY_TYPE:
+        if s["attributes"]["screenshotDisplayType"] == display_type:
             set_id = s["id"]
             break
 
@@ -283,7 +302,7 @@ def upload_screenshots(asc, loc_id, shots):
     else:
         created = asc.call("POST", "/v1/appScreenshotSets", {
             "data": {"type": "appScreenshotSets",
-                     "attributes": {"screenshotDisplayType": DISPLAY_TYPE},
+                     "attributes": {"screenshotDisplayType": display_type},
                      "relationships": {"appStoreVersionLocalization": {
                          "data": {"type": "appStoreVersionLocalizations",
                                   "id": loc_id or "<loc>"}}}}})
@@ -306,7 +325,81 @@ def upload_screenshots(asc, loc_id, shots):
             "data": {"type": "appScreenshots", "id": data["id"],
                      "attributes": {"uploaded": True,
                                     "sourceFileChecksum": hashlib.md5(blob).hexdigest()}}})
-        print(f"  screenshot {path.name}")
+        print(f"  screenshot {display_type} {path.name}")
+
+
+# The App Review contact fields. Apple refuses a submission whose version has
+# no copyright line or no review details, and it only carries them forward from
+# an earlier version -- an app's FIRST version has neither.
+REVIEW_CONTACT = ("contactFirstName", "contactLastName", "contactPhone", "contactEmail")
+
+
+def listing_field(heading):
+    """The fenced block under `## <heading>` in the App Store LISTING.md, or
+    the backticked value on a `- **<heading>:**` line."""
+    md = (REPO / "ios/app-store-assets/LISTING.md").read_text()
+    lines = md.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == f"## {heading}":
+            block = []
+            inside = False
+            for l in lines[i + 1:]:
+                if l.startswith("## "):
+                    break
+                if l.startswith("```"):
+                    if inside:
+                        return "\n".join(block).strip()
+                    inside = True
+                    continue
+                if inside:
+                    block.append(l)
+        if line.startswith(f"- **{heading}:**") and "`" in line:
+            return line.split("`")[1]
+    sys.exit(f"LISTING.md has no {heading!r}")
+
+
+def ensure_review_info(asc, app, version_id):
+    """Give the version a copyright line and App Review details if it lacks them.
+
+    Copyright and the review notes come from LISTING.md. The contact (name,
+    phone, email) is personal, so it is never written into the repo: it is
+    copied from another version that has one -- this app's earlier versions
+    first, then the team's other apps, which share the same reviewer contact.
+    """
+    if is_placeholder(version_id):
+        return
+    v = asc.call("GET", f"/v1/appStoreVersions/{version_id}")["data"]["attributes"]
+    if not v.get("copyright"):
+        copyright_line = listing_field("Copyright")
+        asc.call("PATCH", f"/v1/appStoreVersions/{version_id}",
+                 {"data": {"type": "appStoreVersions", "id": version_id,
+                           "attributes": {"copyright": copyright_line}}})
+        print(f"  copyright: {copyright_line}")
+
+    if asc.call("GET", f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail").get("data"):
+        return
+    contact = None
+    apps = [app] + [a["id"] for a in asc.call("GET", "/v1/apps?limit=50").get("data", [])
+                    if a["id"] != app]
+    for a in apps:
+        for ver in asc.call("GET", f"/v1/apps/{a}/appStoreVersions?limit=10").get("data", []):
+            if ver["id"] == version_id:
+                continue
+            d = asc.call("GET", f"/v1/appStoreVersions/{ver['id']}/appStoreReviewDetail").get("data")
+            if d and all(d["attributes"].get(k) for k in REVIEW_CONTACT):
+                contact = {k: d["attributes"][k] for k in REVIEW_CONTACT}
+                break
+        if contact:
+            break
+    if not contact:
+        sys.exit("no App Review contact on any version of any app; set one in the "
+                 "console (App Review Information) once, and later releases copy it")
+    attrs = dict(contact, demoAccountRequired=False, notes=listing_field("App Review notes"))
+    asc.call("POST", "/v1/appStoreReviewDetails", {
+        "data": {"type": "appStoreReviewDetails", "attributes": attrs,
+                 "relationships": {"appStoreVersion": {
+                     "data": {"type": "appStoreVersions", "id": version_id}}}}})
+    print("  review details: contact copied, notes from LISTING.md")
 
 
 def cmd_release(asc, args):
@@ -359,7 +452,16 @@ def cmd_release(asc, args):
     # "What's New" is REQUIRED on an update, and a submission without it fails
     # Apple's validation. An unattended release has no human to type it, so it
     # comes from the release notes the caller passes.
-    if args.whats_new:
+    #
+    # The app's FIRST version is the exception: there is nothing to be new
+    # relative to, and Apple refuses the field outright (409 "Attribute
+    # 'whatsNew' cannot be edited at this time"). A first version is one with no
+    # other version record beside it.
+    others = [v for v in asc.call("GET", f"/v1/apps/{app}/appStoreVersions?limit=10").get("data", [])
+              if v["id"] != version_id]
+    if args.whats_new and not others and not is_placeholder(version_id):
+        print("  whats-new: skipped (first version of the app)")
+    elif args.whats_new:
         # A dry run never created the version, so version_id is a placeholder and
         # there is nothing real to look the localization up on. GETs are not
         # suppressed by --dry-run (they are how current state is read), so this
@@ -391,11 +493,23 @@ def cmd_release(asc, args):
         print("  not submitting (pass --submit to send it to review)")
         return 0
 
-    submission = asc.call("POST", "/v1/reviewSubmissions", {
-        "data": {"type": "reviewSubmissions",
-                 "attributes": {"platform": "IOS"},
-                 "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
-    sub_id = (submission.get("data") or {}).get("id", "<submission>")
+    ensure_review_info(asc, app, version_id)
+
+    # Reuse an unsent draft if one exists. Creating the submission is the step
+    # that succeeds even when the version is not reviewable, so every failed
+    # attempt used to leave an empty READY_FOR_REVIEW draft behind -- and Apple
+    # refuses to cancel an empty one, so they pile up in the console.
+    drafts = asc.call("GET", f"/v1/reviewSubmissions?filter[app]={app}"
+                             "&filter[platform]=IOS&filter[state]=READY_FOR_REVIEW")
+    if drafts.get("data"):
+        sub_id = drafts["data"][0]["id"]
+        print(f"  reusing draft submission {sub_id}")
+    else:
+        submission = asc.call("POST", "/v1/reviewSubmissions", {
+            "data": {"type": "reviewSubmissions",
+                     "attributes": {"platform": "IOS"},
+                     "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
+        sub_id = (submission.get("data") or {}).get("id", "<submission>")
     asc.call("POST", "/v1/reviewSubmissionItems", {
         "data": {"type": "reviewSubmissionItems",
                  "relationships": {
