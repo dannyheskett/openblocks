@@ -16,7 +16,7 @@ MINIMP4_INC  := third_party/minimp4
 
 SRC := src/main.c src/game.c src/tick.c src/input.c \
        src/render.c src/render_portrait.c src/render_landscape.c src/gfx_raylib.c \
-       src/safe_area.c \
+       src/safe_area.c src/menu.c src/present.c src/window.c \
        src/sound.c src/audio_raylib.c \
        src/recorder.c src/encode_h264.c src/encode_mux.c
 
@@ -396,7 +396,8 @@ IOS_SIGN_IDENTITY ?=
 IOS_PROFILE       ?=
 IOS_TEAM_ID       ?=
 IOS_C_SRC      := src/game.c src/tick.c src/main.c src/render.c src/render_portrait.c src/render_landscape.c \
-                  src/input.c src/sound.c src/recorder.c src/safe_area.c
+                  src/input.c src/sound.c src/recorder.c src/safe_area.c \
+                  src/menu.c src/present.c src/window.c
 IOS_MM_SRC     := ios/ios_main.mm ios/gfx_metal.mm ios/plat_ios.mm ios/audio_ios.mm
 IOS_CFLAGS     := -std=c99   -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
 IOS_MMFLAGS    := -std=c++14 -fobjc-arc -Wall -Wextra -Isrc -Iios -DPLATFORM_IOS -O2
@@ -512,13 +513,21 @@ dist-ios: $(IOS_IPA)
 #                the raylib-free configuration input.c already supports, so the
 #                test can supply a scripted touch/clock surface. The recognizer
 #                is the same C every touch platform compiles.
+#   test_menu  — the family menu (menu.c, identical in every game): it fits
+#                every view shape, keeps its size on rotation, grows with the
+#                window, and a pointer picks the row under it.
 # ---------------------------------------------------------------------------
 TEST_BIN       := build/test_game
 TEST_INPUT_BIN := build/test_input
+TEST_MENU_BIN  := build/test_menu
 
-test: $(TEST_BIN) $(TEST_INPUT_BIN)
+test: $(TEST_BIN) $(TEST_INPUT_BIN) $(TEST_MENU_BIN)
 	./$(TEST_BIN)
 	./$(TEST_INPUT_BIN)
+	./$(TEST_MENU_BIN)
+
+$(TEST_MENU_BIN): tests/test_menu.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
+	gcc $(CFLAGS_COMMON) -O0 -g tests/test_menu.c -o $(TEST_MENU_BIN) -lm
 
 $(TEST_BIN): tests/test_game.c $(wildcard src/*.c src/*.h) | $(OBJ_DIR)
 	gcc $(CFLAGS_COMMON) -O0 -g tests/test_game.c -o $(TEST_BIN)

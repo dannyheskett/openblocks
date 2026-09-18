@@ -1,61 +1,42 @@
-// Landscape (desktop) renderer: draws the 3-column layout into a fixed 640x480
-// offscreen canvas that present() letterboxes into the window. Compiles to an
-// empty object off OB_LANDSCAPE (i.e. on Android / iOS).
+// Landscape (desktop) renderer: the 3-column layout, hand-tuned in a 640x480
+// logical space and scaled to fit whatever view it is drawn into, centred with
+// black bars. Frames go out through present() (present.c), which draws the
+// window at its native resolution and, while recording, the fixed 640x480
+// capture. Compiles to an empty object off OB_LANDSCAPE (i.e. on Android / iOS).
 #include "render_internal.h"
 
 #ifdef OB_LANDSCAPE
 
-#include "recorder.h"
+#include "present.h"
 #include <raylib.h>
+#include <rlgl.h>
 #include <stddef.h> // NULL
 
-RenderTexture2D canvas;              // declared extern in render_internal.h; the
-                                     // fixed 640x480 canvas is now used only by
-                                     // the recorder (fixed-size video).
+// A 640x480-logical draw, scaled to fit a view_w x view_h view and centred.
+// The transform is pushed onto the current matrix rather than replacing it (as
+// a Camera2D would), so it composes with the recorder's supersampling scale.
+// Text and shapes are re-rasterized at the final scale, so they stay crisp.
+typedef struct { void (*draw)(void*); void* ctx; } Scaled;
 
-// Continuous scale that fits the 640x480 layout in the window (never below 1x,
-// so 640x480 is the minimum). Fractional is fine — a Camera2D re-rasterizes the
-// layout crisply at any scale.
-static float fit_scale(void) {
-    float sw = (float)GetScreenWidth()  / BASE_WIDTH;
-    float sh = (float)GetScreenHeight() / BASE_HEIGHT;
-    float s = (sw < sh) ? sw : sh;
-    return (s < 1.0f) ? 1.0f : s;
+static void scaled_scene(void* p, int view_w, int view_h) {
+    Scaled* s = (Scaled*)p;
+    float sw = (float)view_w / BASE_WIDTH, sh = (float)view_h / BASE_HEIGHT;
+    float scale = (sw < sh) ? sw : sh;
+    gfx_clear(BLACK);               // bars around the scaled layout stay black
+    rlPushMatrix();
+    rlTranslatef((view_w - BASE_WIDTH * scale) / 2.0f,
+                 (view_h - BASE_HEIGHT * scale) / 2.0f, 0.0f);
+    rlScalef(scale, scale, 1.0f);
+    s->draw(s->ctx);
+    rlPopMatrix();
 }
 
-// Render `draw(ctx)` — which issues 640x480-logical gfx calls — to the window,
-// scaled + centered at the window's native resolution via a Camera2D (so text
-// and shapes stay crisp when enlarged, instead of upscaling a 640x480 texture).
-// When recording, the same scene is also drawn into the fixed 640x480 canvas so
-// captured video stays a constant size regardless of window size.
 static void present_scaled(void (*draw)(void*), void* ctx) {
-    if (recorder_active()) {
-        BeginTextureMode(canvas);
-        gfx_clear(BLACK);
-        draw(ctx);
-        EndTextureMode();
-        recorder_capture(&canvas);   // clean 640x480 frame (no REC indicator)
-    }
-
-    float scale = fit_scale();
-    float ox = (GetScreenWidth()  - BASE_WIDTH  * scale) / 2.0f;
-    float oy = (GetScreenHeight() - BASE_HEIGHT * scale) / 2.0f;
-
-    gfx_begin_frame();
-    gfx_clear(BLACK);               // letterbox bars stay black
-    Camera2D cam = { .offset = (Vector2){ox, oy}, .target = (Vector2){0, 0},
-                     .rotation = 0.0f, .zoom = scale };
-    BeginMode2D(cam);
-    draw(ctx);
-    if (recorder_active()) {        // window-only indicator, in 640x480 space
-        DrawCircle(16, 14, 5.0f, RED);
-        gfx_text("REC", 24, 8, 12, RED);
-    }
-    EndMode2D();
-    gfx_end_frame();
+    Scaled s = { draw, ctx };
+    present(scaled_scene, &s);
 }
 
-// Draw the gameplay scene into the currently-active render target (canvas).
+// Draw the gameplay scene in 640x480 logical coordinates.
 static void draw_game_landscape(const Game* game) {
     gfx_clear(BLACK);
 
@@ -140,15 +121,6 @@ static void draw_land_scene_cb(void* p) {
     if (c->ot) draw_center_panel_landscape(c->ot, c->os, c->otc);
 }
 
-typedef struct {
-    MenuLayout m; const char* title; const char* const* items;
-    int count, selected, gap;
-} LandMenuCtx;
-static void draw_land_menu_cb(void* p) {
-    LandMenuCtx* c = (LandMenuCtx*)p;
-    draw_menu_panel(c->m, c->title, c->items, c->count, c->selected, c->gap, false);
-}
-
 // One gameplay scene with an optional centered overlay, scaled to the window.
 static void draw_scene_landscape(const Game* game, const char* overlay_title,
                                  const char* overlay_sub, Color overlay_tc) {
@@ -159,22 +131,5 @@ static void draw_scene_landscape(const Game* game, const char* overlay_title,
 void render_frame_landscape(const Game* g)     { draw_scene_landscape(g, NULL, NULL, WHITE); }
 void render_pause_landscape(const Game* g)     { draw_scene_landscape(g, "GAME PAUSED", "Press any key to resume", YELLOW); }
 void render_game_over_landscape(const Game* g) { draw_scene_landscape(g, "GAME OVER", "Press any key to return to menu", RED); }
-
-void render_menu_landscape(const char* title, const char* const* items, int count,
-                           int selected, int gap_before) {
-    int cx = BASE_WIDTH / 2;
-    int line_h = 30, item_fs = 20, title_size = 44;
-    int extra = (gap_before >= 0) ? 1 : 0;
-    int panel_w = 320;
-    int panel_h = title_size + 40 + (count + extra) * line_h + 60;
-    int px = cx - panel_w / 2, py = (BASE_HEIGHT - panel_h) / 2;
-    MenuLayout m = { .cx = cx, .px = px, .py = py, .panel_w = panel_w, .panel_h = panel_h,
-                     .title_size = title_size, .title_y = py + 28,
-                     .items_y = py + 28 + title_size + 28,
-                     .line_h = line_h, .item_fs = item_fs };
-
-    LandMenuCtx c = { m, title, items, count, selected, gap_before };
-    present_scaled(draw_land_menu_cb, &c);
-}
 
 #endif // OB_LANDSCAPE

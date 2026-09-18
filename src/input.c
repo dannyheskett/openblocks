@@ -6,7 +6,7 @@
 #endif
 
 // input_poll() composes up to two sources into one Input:
-//   - keyboard: desktop native builds and the web build (PC browsers)
+//   - keyboard + mouse: desktop native builds and the web build (PC browsers)
 //   - touch:    Android and the web build (mobile browsers)
 // The web build runs both, so a phone uses gestures while a desktop browser
 // uses the keyboard — same binary. Android runs only touch; desktop native
@@ -16,6 +16,11 @@
 // Keyboard source: sets the base field values.
 static void poll_keyboard(Input* in) {
     bool alt = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
+
+    Vector2 mp = GetMousePosition();
+    in->mouse_x = (int)mp.x;
+    in->mouse_y = (int)mp.y;
+    in->left_pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 
     // Held movement.
     in->left  = IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);

@@ -1,17 +1,26 @@
-// raylib backend for the gfx primitive layer: each entry point is a 1:1 wrapper
+// raylib backend for the gfx primitive layer: each entry point is a thin wrapper
 // over the raylib call it replaces, so desktop / web / android rendering is
-// identical across those platforms. Text is the one exception: it is drawn with
-// the bundled Nunito font (loaded from the embedded TTF) via DrawTextEx rather
-// than raylib's built-in pixel font. iOS uses gfx_metal.mm instead and never
+// identical across those platforms. iOS uses ios/gfx_metal.mm instead and never
 // compiles this file.
+//
+// Two entry points do more than forward:
+//   gfx_text / gfx_measure_text draw with the bundled Nunito font (loaded from
+//     the embedded TTF) via DrawTextEx rather than raylib's built-in pixel font,
+//     so every platform lays text out identically.
+//   gfx_triangle draws both windings, because raylib's DrawTriangle is
+//     back-face culled and the pip outlines are generated in either order.
 #include "gfx.h"
 #include "font_nunito.h"
 #include <raylib.h>
 #include <stddef.h>  // NULL
 
-// Bake the glyph atlas well above the largest on-screen size (menu titles reach
-// ~40px) so every draw downsamples — crisp with bilinear filtering.
-#define GFX_FONT_BAKE 64
+// Corner segments for the rounded card outlines. Six is what the original
+// direct raylib calls used and is smooth at every card size the game reaches.
+#define GFX_ROUND_SEGMENTS 6
+
+// Bake the glyph atlas at the same size as the iOS atlas (font_atlas.h) so text
+// looks the same on every platform and large menu titles stay crisp.
+#define GFX_FONT_BAKE 96
 
 static Font s_font;
 static bool s_font_ready = false;
@@ -31,8 +40,8 @@ static void ensure_font(void) {
 
 void gfx_font_init(void) { ensure_font(); }
 
-void gfx_begin_frame(void) { BeginDrawing(); }
-void gfx_end_frame(void)   { EndDrawing(); }
+void gfx_begin_frame(void)  { BeginDrawing(); }
+void gfx_end_frame(void)    { EndDrawing(); }
 void gfx_clear(Color color) { ClearBackground(color); }
 
 void gfx_rect(int x, int y, int w, int h, Color color) {
@@ -43,6 +52,33 @@ void gfx_rect_lines(int x, int y, int w, int h, Color color) {
 }
 void gfx_line(int x1, int y1, int x2, int y2, Color color) {
     DrawLine(x1, y1, x2, y2, color);
+}
+
+void gfx_rect_gradient_v(int x, int y, int w, int h, Color top, Color bottom) {
+    DrawRectangleGradientV(x, y, w, h, top, bottom);
+}
+
+void gfx_rect_rounded(int x, int y, int w, int h, float roundness, Color color) {
+    DrawRectangleRounded((Rectangle){(float)x, (float)y, (float)w, (float)h},
+                         roundness, GFX_ROUND_SEGMENTS, color);
+}
+void gfx_rect_rounded_lines(int x, int y, int w, int h, float roundness, Color color) {
+    DrawRectangleRoundedLines((Rectangle){(float)x, (float)y, (float)w, (float)h},
+                              roundness, GFX_ROUND_SEGMENTS, color);
+}
+
+void gfx_circle(float cx, float cy, float radius, Color color) {
+    DrawCircleV((Vector2){cx, cy}, radius, color);
+}
+void gfx_circle_lines(float cx, float cy, float radius, Color color) {
+    DrawCircleLinesV((Vector2){cx, cy}, radius, color);
+}
+
+void gfx_triangle(Vector2 a, Vector2 b, Vector2 c, Color color) {
+    // raylib culls back faces, and the pip outlines are traced in whichever
+    // direction the parametric curve runs, so emit the triangle both ways.
+    DrawTriangle(a, b, c, color);
+    DrawTriangle(a, c, b, color);
 }
 
 void gfx_text(const char* text, int x, int y, int font_size, Color color) {

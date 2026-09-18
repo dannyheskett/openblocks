@@ -17,8 +17,7 @@ static int title_bar_h(int h) { int fs = title_fs(h); return fs + fs / 2; }
 // cutout (front camera) when the surface draws under it, so neither the
 // wordmark nor the playfield below ever sits beneath the camera.
 static int top_bar_h(int h) {
-    int top, cl, cr;
-    safe_area_get(&top, &cl, &cr);
+    int top = safe_area_get().top;
     int tb = title_bar_h(h);
     return (top > tb) ? top : tb;
 }
@@ -36,8 +35,8 @@ static int outer_margin(void) {
 // --- Shared portrait layout -------------------------------------------------
 // Title bar, then one HUD band above the field: SCORE / LINES / LEVEL columns
 // (uniform font, labels over values) with the NEXT preview box right-aligned.
-// There is no on-screen pause key — a two-finger tap pauses (see input.c);
-// draw_pause_hint names that gesture under the field early in a game.
+// There is no on-screen menu key — a two-finger tap opens the menu (see
+// input.c); draw_menu_hint names that gesture under the field early in a game.
 typedef struct {
     int fs, hud_h, band_y;       // uniform font size; band height and top y
     int cell, px, py, field_w;   // playfield geometry
@@ -96,8 +95,8 @@ static void draw_title_bar(void) {
     int ty = (tb_h - fs) / 2;   // wordmark vertically centered in the bar
     gfx_rect(0, 0, w, tb_h, DARKGRAY);
 
-    int top, cl, cr;
-    safe_area_get(&top, &cl, &cr);
+    SafeArea sa = safe_area_get();
+    int top = sa.top, cl = sa.cutout_left, cr = sa.cutout_right;
     int full = gfx_measure_text("OPENBLOCKS", fs);
 
     // No horizontal extent reported. With no top inset either, there is no
@@ -166,7 +165,7 @@ static void draw_game_portrait(const Game* game) {
     draw_playfield(game, L.px, L.py, L.cell);
 }
 
-// Discoverability aid for the pause gesture. Pausing is a two-finger tap
+// Discoverability aid for the menu gesture. Opening the menu is a two-finger tap
 // (input.c) with no on-screen key, and iOS has no Back button to fall back on,
 // so a player has no way to learn the gesture exists. Name it under the
 // playfield for the first few pieces of a game, then get out of the way. Keyed
@@ -174,7 +173,7 @@ static void draw_game_portrait(const Game* game) {
 // actually got rather than how long they stared at the screen.
 #define HINT_PIECES 3
 
-static void draw_pause_hint(const Game* game) {
+static void draw_menu_hint(const Game* game) {
     int spawned = 0;
     for (int i = 0; i < NUM_PIECES; i++) spawned += game->piece_counts[i];
     if (spawned > HINT_PIECES) return;
@@ -188,7 +187,7 @@ static void draw_pause_hint(const Game* game) {
     if (fs > room - 4) fs = room - 4;   // stay inside the margin, never over the field
     if (fs < 8) return;                // no room on this layout: skip it entirely
 
-    const char* msg = "Two-finger tap to pause";
+    const char* msg = "Two-finger tap for menu";
     int tw = gfx_measure_text(msg, fs);
     if (tw > w) return;
     gfx_text(msg, (w - tw) / 2, field_bottom + (room - fs) / 2, fs,
@@ -210,37 +209,12 @@ static void draw_scene_portrait(const Game* game, const char* overlay_title,
     gfx_begin_frame();
     draw_game_portrait(game);
     if (overlay_title) draw_center_panel_portrait(overlay_title, overlay_sub, overlay_tc);
-    else draw_pause_hint(game);   // only during live play; overlays own the screen
+    else draw_menu_hint(game);   // only during live play; overlays own the screen
     gfx_end_frame();
 }
 
 void render_frame_portrait(const Game* g)     { draw_scene_portrait(g, NULL, NULL, WHITE); }
 void render_pause_portrait(const Game* g)     { draw_scene_portrait(g, "GAME PAUSED", "Tap to resume", YELLOW); }
 void render_game_over_portrait(const Game* g) { draw_scene_portrait(g, "GAME OVER", "Tap to return to menu", RED); }
-
-void render_menu_portrait(const char* title, const char* const* items, int count,
-                          int selected, int gap_before) {
-    int w = GetScreenWidth(), h = GetScreenHeight();
-    int line_h = h / 20, item_fs = h / 28;
-    int extra = (gap_before >= 0) ? 1 : 0;
-    int base = (w < h) ? w : h;              // keep the panel compact in a wide window
-    int panel_w = base * 82 / 100;
-
-    // Shrink the title if it would overrun the panel (wide tablets).
-    int title_size = h / 16;
-    while (title_size > 12 && gfx_measure_text(title, title_size) > panel_w - line_h) title_size -= 2;
-
-    int panel_h = title_size + line_h + (count + extra) * line_h + line_h * 2;
-    int px = w / 2 - panel_w / 2, py = (h - panel_h) / 2;
-    MenuLayout m = { .cx = w / 2, .px = px, .py = py, .panel_w = panel_w, .panel_h = panel_h,
-                     .title_size = title_size, .title_y = py + line_h,
-                     .items_y = py + line_h + title_size + line_h,
-                     .line_h = line_h, .item_fs = item_fs };
-
-    gfx_begin_frame();
-    gfx_clear(BLACK);
-    draw_menu_panel(m, title, items, count, selected, gap_before, true);
-    gfx_end_frame();
-}
 
 #endif // OB_PORTRAIT

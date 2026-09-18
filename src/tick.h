@@ -1,16 +1,17 @@
-#ifndef OPENBLOCKS_TICK_H
-#define OPENBLOCKS_TICK_H
+#ifndef TICK_H
+#define TICK_H
 
-// Fixed-timestep accumulator. The simulation (game.c) advances in whole 1/60 s
-// steps — gravity, DAS, and the clear animation are all counted in frames — so
-// this converts a variable real-frame delta into the right number of steps to
-// run this frame. The game then plays at the same speed regardless of the
-// display's refresh (60, 120, 144 Hz, or an irregular browser rAF): a 60 Hz
-// frame runs one step, a 120 Hz frame runs one step every other frame, a slow
-// 30 Hz frame runs two. The backlog is clamped so a long stall (a breakpoint, a
-// backgrounded tab) skips ahead in time instead of triggering a runaway
-// catch-up ("spiral of death"). Pure and platform-free — the caller supplies the
-// real time delta — so the loop driver stays unit-testable without a window.
+// Fixed-timestep accumulator. Every game in this family simulates in whole
+// 1/60 s steps (timers, animations and gravity are counted in frames), so this
+// converts a variable real-frame delta into the right number of steps to run
+// this frame. The game then runs at the same speed regardless of the display's
+// refresh (60, 120, 144 Hz, or an irregular browser rAF): a 60 Hz frame runs one
+// step, a 120 Hz frame runs one step every other frame, a slow 30 Hz frame runs
+// two. The backlog is clamped so a long stall (a breakpoint, a backgrounded tab)
+// skips ahead in time instead of triggering a runaway catch-up ("spiral of
+// death"). Pure and platform-free -- the caller supplies the real time delta --
+// so the loop driver stays unit-testable without a window. This file is
+// identical in every game.
 
 #define SIM_HZ        60
 #define SIM_DT        (1.0 / SIM_HZ)  // seconds per simulation step
@@ -27,8 +28,8 @@ typedef struct {
 // spiraling.
 int sim_clock_advance(SimClock* clock, double dt_real);
 
-// Discard any banked time. Called when leaving gameplay so a pause or menu can't
-// bank a burst of catch-up steps that all fire the instant play resumes.
+// Discard any banked time. Called when leaving gameplay so the menu can't bank a
+// burst of catch-up steps that all fire the instant play resumes.
 void sim_clock_reset(SimClock* clock);
 
-#endif // OPENBLOCKS_TICK_H
+#endif // TICK_H

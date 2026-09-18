@@ -36,7 +36,7 @@
     // Safari workaround (entirely in Safari's own APIs — raylib is untouched):
     // raylib's web backend sizes the canvas from window.innerWidth/innerHeight.
     // On mobile Safari innerHeight is the *large* layout viewport (the area
-    // behind the toolbar), so the bottom of the game (the control buttons) gets
+    // behind the toolbar), so the bottom of the game gets
     // cut off. We shadow innerWidth/innerHeight with the visualViewport size —
     // the actually-visible area — BEFORE the WASM module loads, so raylib reads
     // the visible dimensions. Desktop is unaffected (visualViewport == inner*).
@@ -50,6 +50,20 @@
     })();
 
     var Module = { canvas: document.getElementById('canvas') };
+
+    // raylib's GLFW port listens for key events on the canvas, and the canvas is
+    // tabindex="-1", so it does not take focus on its own: until the player
+    // happens to click, the keyboard does nothing at all. Focus it as soon as
+    // the page settles, and take focus back on every pointer contact (a click
+    // inside the game must not leave focus on the document).
+    (function () {
+      var canvas = Module.canvas;
+      var focus = function () { canvas.focus({ preventScroll: true }); };
+      window.addEventListener('load', function () { setTimeout(focus, 0); });
+      canvas.addEventListener('pointerdown', focus);
+      canvas.addEventListener('touchstart', focus, { passive: true });
+      focus();
+    })();
 
     // raylib re-reads the viewport on the window 'resize' event. iOS Safari's
     // toolbar show/hide fires visualViewport 'resize'/'scroll' but not always a
