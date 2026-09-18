@@ -79,6 +79,15 @@ openblocks is open source. Read the code, report a bug, or build it yourself: ht
 No dark patterns, no "energy" timers, no paywalled pieces. Just the timeless falling-block puzzle, done properly.
 ```
 
+## App Review notes
+
+Sent to Apple's reviewer with every submission that has none yet
+(`scripts/asc_release.py` sets them, with the team's review contact).
+
+```
+Thank you very much for reviewing my game. openblocks is a falling-block puzzle: drag sideways to move a piece, tap to rotate, and flick down to drop it. It needs no account, sign-in or network access. A two-finger tap opens the menu.
+```
+
 ## App information
 
 - **Category (primary):** Games -> Puzzle
