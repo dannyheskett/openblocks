@@ -1,10 +1,14 @@
-// Native Metal backend for the gfx primitive layer (iOS) — no raylib.
+// Native Metal backend for the gfx primitive layer (iOS) -- no raylib.
 //
 // Immediate-mode design: each frame the gfx_* calls append triangles (colored,
 // or textured from a font atlas) to a CPU vertex list in pixel coordinates;
 // gfx_end_frame uploads them and issues one draw. A single pipeline handles both
 // solid fills (sampling a white texel in the atlas) and text (sampling glyph
 // coverage), so there is one shader and one draw call per frame.
+//
+// Playing cards need more than rectangles: the rounded card bodies, the circular
+// club lobes, and the parametric heart/spade/diamond fans all bottom out in the
+// same triangle push, so every primitive below is built from tri_solid.
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
@@ -25,7 +29,7 @@ static CAMetalLayer*          s_layer;
 static id<MTLRenderPipelineState> s_pipeline;
 static id<MTLSamplerState>    s_sampler;
 static id<MTLTexture>         s_atlas;
-static int                    s_glyph_index[256]; // codepoint -> ob_font_glyphs index
+static int                    s_glyph_index[256]; // codepoint -> font_glyphs index
 
 static std::vector<GVert> s_verts;
 static float s_cr = 0, s_cg = 0, s_cb = 0, s_ca = 1; // clear colour
@@ -35,9 +39,9 @@ static int   s_ox = 0, s_oy = 0;                      // safe-area origin (px)
 // Triple-buffered vertex buffers, reused across frames (grown on demand) instead
 // of allocating one per frame; the semaphore stops us overwriting a buffer the
 // GPU is still reading.
-#define OB_INFLIGHT 3
-static id<MTLBuffer>        s_vbuf[OB_INFLIGHT];
-static NSUInteger           s_vcap[OB_INFLIGHT];
+#define GFX_INFLIGHT 3
+static id<MTLBuffer>        s_vbuf[GFX_INFLIGHT];
+static NSUInteger           s_vcap[GFX_INFLIGHT];
 static int                  s_frame_idx = 0;
 static dispatch_semaphore_t s_inflight;
 
@@ -69,21 +73,21 @@ static void build_font_atlas(void) {
     // Upload the baked Nunito alpha atlas as a single-channel texture. The
     // generator already forced the bottom-right 8x8 block opaque, which is the
     // "white block" solid primitives sample (see uv_white).
-    static unsigned char atlas[OB_FONT_ATLAS_W * OB_FONT_ATLAS_H];
-    memcpy(atlas, ob_font_atlas_alpha, sizeof(atlas));
+    static unsigned char atlas[FONT_ATLAS_W * FONT_ATLAS_H];
+    memcpy(atlas, font_atlas_alpha, sizeof(atlas));
 
     MTLTextureDescriptor* td =
         [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
-                                                           width:OB_FONT_ATLAS_W
-                                                          height:OB_FONT_ATLAS_H mipmapped:NO];
+                                                           width:FONT_ATLAS_W
+                                                          height:FONT_ATLAS_H mipmapped:NO];
     s_atlas = [s_device newTextureWithDescriptor:td];
-    [s_atlas replaceRegion:MTLRegionMake2D(0, 0, OB_FONT_ATLAS_W, OB_FONT_ATLAS_H)
-               mipmapLevel:0 withBytes:atlas bytesPerRow:OB_FONT_ATLAS_W];
+    [s_atlas replaceRegion:MTLRegionMake2D(0, 0, FONT_ATLAS_W, FONT_ATLAS_H)
+               mipmapLevel:0 withBytes:atlas bytesPerRow:FONT_ATLAS_W];
 
     // Codepoint -> glyph-array index (fallback '?').
     for (int i = 0; i < 256; i++) s_glyph_index[i] = -1;
-    for (int i = 0; i < OB_FONT_GLYPH_COUNT; i++) {
-        int v = ob_font_glyphs[i].value;
+    for (int i = 0; i < FONT_GLYPH_COUNT; i++) {
+        int v = font_glyphs[i].value;
         if (v >= 0 && v < 256) s_glyph_index[v] = i;
     }
 }
@@ -99,7 +103,7 @@ static int glyph_of(int cp) {
 void gfx_metal_attach(CAMetalLayer* layer) {
     s_device = MTLCreateSystemDefaultDevice();
     s_queue  = [s_device newCommandQueue];
-    s_inflight = dispatch_semaphore_create(OB_INFLIGHT);
+    s_inflight = dispatch_semaphore_create(GFX_INFLIGHT);
     layer.device          = s_device;
     layer.pixelFormat     = MTLPixelFormatBGRA8Unorm;
     layer.framebufferOnly = YES;
@@ -139,8 +143,8 @@ static inline void uv_white(float* u, float* v) {
     // Centre of the forced-opaque bottom-right 8x8 block. Sampling 4px in from
     // the corner keeps the LINEAR footprint entirely inside the white block, so
     // solid fills read coverage 1.0 (a single texel would bleed under linear).
-    *u = (OB_FONT_ATLAS_W - 4.0f) / (float)OB_FONT_ATLAS_W;
-    *v = (OB_FONT_ATLAS_H - 4.0f) / (float)OB_FONT_ATLAS_H;
+    *u = (FONT_ATLAS_W - 4.0f) / (float)FONT_ATLAS_W;
+    *v = (FONT_ATLAS_H - 4.0f) / (float)FONT_ATLAS_H;
 }
 
 static inline void push(float x, float y, float u, float v, Color c) {
@@ -148,7 +152,9 @@ static inline void push(float x, float y, float u, float v, Color c) {
     s_verts.push_back(g);
 }
 
-// Solid triangle (uv fixed to the white texel).
+// Solid triangle (uv fixed to the white texel). The render encoder never enables
+// face culling, so winding is irrelevant -- which is what lets gfx_triangle be
+// winding-independent without emitting the triangle twice as raylib must.
 static void tri_solid(float x0, float y0, float x1, float y1, float x2, float y2, Color c) {
     float u, v; uv_white(&u, &v);
     push(x0, y0, u, v, c); push(x1, y1, u, v, c); push(x2, y2, u, v, c);
@@ -157,6 +163,22 @@ static void tri_solid(float x0, float y0, float x1, float y1, float x2, float y2
 static void quad_solid(float x, float y, float w, float h, Color c) {
     tri_solid(x, y, x + w, y, x + w, y + h, c);
     tri_solid(x, y, x + w, y + h, x, y + h, c);
+}
+
+// A 1px-wide quad along a segment: the stroke unit every outline is built from.
+static void seg_stroke(float x1, float y1, float x2, float y2, Color c) {
+    float dx = x2 - x1, dy = y2 - y1;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 0.001f) { quad_solid(x1, y1, 1, 1, c); return; }
+    float nx = -dy / len * 0.5f, ny = dx / len * 0.5f; // half-thickness normal (1px)
+    tri_solid(x1 + nx, y1 + ny, x2 + nx, y2 + ny, x2 - nx, y2 - ny, c);
+    tri_solid(x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny, c);
+}
+
+// Stroke a polyline, optionally closing it back to the first point.
+static void stroke_path(const float* xs, const float* ys, int n, bool closed, Color c) {
+    for (int i = 0; i + 1 < n; i++) seg_stroke(xs[i], ys[i], xs[i + 1], ys[i + 1], c);
+    if (closed && n > 1) seg_stroke(xs[n - 1], ys[n - 1], xs[0], ys[0], c);
 }
 
 // --- Frame lifecycle --------------------------------------------------------
@@ -175,7 +197,7 @@ void gfx_end_frame(void) {
 
     dispatch_semaphore_wait(s_inflight, DISPATCH_TIME_FOREVER);
     int fi = s_frame_idx;
-    s_frame_idx = (s_frame_idx + 1) % OB_INFLIGHT;
+    s_frame_idx = (s_frame_idx + 1) % GFX_INFLIGHT;
 
     id<MTLCommandBuffer> cmd = [s_queue commandBuffer];
     __block dispatch_semaphore_t sem = s_inflight;
@@ -219,31 +241,132 @@ void gfx_rect_lines(int x, int y, int w, int h, Color c) {
 }
 
 void gfx_line(int x1, int y1, int x2, int y2, Color c) {
-    float dx = x2 - x1, dy = y2 - y1;
-    float len = sqrtf(dx * dx + dy * dy);
-    if (len < 0.001f) { quad_solid(x1, y1, 1, 1, c); return; }
-    float nx = -dy / len * 0.5f, ny = dx / len * 0.5f; // half-thickness normal (1px)
-    tri_solid(x1 + nx, y1 + ny, x2 + nx, y2 + ny, x2 - nx, y2 - ny, c);
-    tri_solid(x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny, c);
+    seg_stroke((float)x1, (float)y1, (float)x2, (float)y2, c);
 }
 
-// Text: port of raylib's DrawTextEx with the bundled Nunito font — scaleFactor =
+void gfx_rect_gradient_v(int x, int y, int w, int h, Color top, Color bottom) {
+    float u, v; uv_white(&u, &v);
+    push(x,     y,     u, v, top);    push(x + w, y,     u, v, top);    push(x + w, y + h, u, v, bottom);
+    push(x,     y,     u, v, top);    push(x + w, y + h, u, v, bottom); push(x,     y + h, u, v, bottom);
+}
+
+void gfx_triangle(Vector2 a, Vector2 b, Vector2 c, Color color) {
+    tri_solid(a.x, a.y, b.x, b.y, c.x, c.y, color);
+}
+
+// Segments per 90-degree corner arc, and per full circle. Matched to what the
+// raylib backend asks for (GFX_ROUND_SEGMENTS = 6) so the two silhouettes agree.
+#define ARC_SEGMENTS   6
+#define CIRCLE_SEGMENTS 24
+
+// raylib's roundness: the corner radius is roundness * min(w,h) / 2, so a card
+// keeps the same relative corner at any scale.
+static float corner_radius(int w, int h, float roundness) {
+    float shortest = (w < h) ? (float)w : (float)h;
+    float r = shortest * roundness * 0.5f;
+    if (r < 0.0f) r = 0.0f;
+    if (r > shortest * 0.5f) r = shortest * 0.5f;
+    return r;
+}
+
+// Trace a rounded rectangle's perimeter into xs/ys. Returns the point count.
+// Order: top edge, top-right arc, right edge, bottom-right arc, bottom edge,
+// bottom-left arc, left edge, top-left arc. Capacity must be >= 4*(ARC+1)+4.
+static int rounded_path(float x, float y, float w, float h, float r,
+                        float* xs, float* ys) {
+    struct { float cx, cy, a0; } corners[4] = {
+        { x + w - r, y + r,     270.0f },  // top-right
+        { x + w - r, y + h - r,   0.0f },  // bottom-right
+        { x + r,     y + h - r,  90.0f },  // bottom-left
+        { x + r,     y + r,     180.0f },  // top-left
+    };
+    int n = 0;
+    xs[n] = x + r; ys[n] = y; n++;         // start of the top edge
+    for (int ci = 0; ci < 4; ci++) {
+        for (int s = 0; s <= ARC_SEGMENTS; s++) {
+            float a = (corners[ci].a0 + 90.0f * s / ARC_SEGMENTS) * (float)M_PI / 180.0f;
+            xs[n] = corners[ci].cx + cosf(a) * r;
+            ys[n] = corners[ci].cy + sinf(a) * r;
+            n++;
+        }
+    }
+    return n;
+}
+
+void gfx_rect_rounded(int x, int y, int w, int h, float roundness, Color c) {
+    if (w <= 0 || h <= 0) return;
+    float r = corner_radius(w, h, roundness);
+    if (r < 0.5f) { quad_solid(x, y, w, h, c); return; }
+    float fx = (float)x, fy = (float)y, fw = (float)w, fh = (float)h;
+
+    // Three bands cover everything except the four corner arcs.
+    quad_solid(fx + r, fy, fw - 2 * r, fh, c);
+    quad_solid(fx, fy + r, r, fh - 2 * r, c);
+    quad_solid(fx + fw - r, fy + r, r, fh - 2 * r, c);
+
+    // Corner arcs as fans from each corner's centre.
+    float xs[4 * (ARC_SEGMENTS + 1) + 1], ys[4 * (ARC_SEGMENTS + 1) + 1];
+    rounded_path(fx, fy, fw, fh, r, xs, ys);
+    struct { float cx, cy; } cen[4] = {
+        { fx + fw - r, fy + r }, { fx + fw - r, fy + fh - r },
+        { fx + r,      fy + fh - r }, { fx + r,  fy + r },
+    };
+    int p = 1;   // xs[0] is the top-edge start; the arcs follow in order
+    for (int ci = 0; ci < 4; ci++) {
+        for (int s = 0; s < ARC_SEGMENTS; s++, p++)
+            tri_solid(cen[ci].cx, cen[ci].cy, xs[p], ys[p], xs[p + 1], ys[p + 1], c);
+        p++;     // skip the arc's closing point; the next arc starts fresh
+    }
+}
+
+void gfx_rect_rounded_lines(int x, int y, int w, int h, float roundness, Color c) {
+    if (w <= 0 || h <= 0) return;
+    float r = corner_radius(w, h, roundness);
+    if (r < 0.5f) { gfx_rect_lines(x, y, w, h, c); return; }
+    float xs[4 * (ARC_SEGMENTS + 1) + 1], ys[4 * (ARC_SEGMENTS + 1) + 1];
+    int n = rounded_path((float)x, (float)y, (float)w, (float)h, r, xs, ys);
+    stroke_path(xs, ys, n, true, c);
+}
+
+void gfx_circle(float cx, float cy, float radius, Color c) {
+    if (radius <= 0.0f) return;
+    float prev_x = cx + radius, prev_y = cy;
+    for (int i = 1; i <= CIRCLE_SEGMENTS; i++) {
+        float a = 2.0f * (float)M_PI * i / CIRCLE_SEGMENTS;
+        float px = cx + cosf(a) * radius, py = cy + sinf(a) * radius;
+        tri_solid(cx, cy, prev_x, prev_y, px, py, c);
+        prev_x = px; prev_y = py;
+    }
+}
+
+void gfx_circle_lines(float cx, float cy, float radius, Color c) {
+    if (radius <= 0.0f) return;
+    float prev_x = cx + radius, prev_y = cy;
+    for (int i = 1; i <= CIRCLE_SEGMENTS; i++) {
+        float a = 2.0f * (float)M_PI * i / CIRCLE_SEGMENTS;
+        float px = cx + cosf(a) * radius, py = cy + sinf(a) * radius;
+        seg_stroke(prev_x, prev_y, px, py, c);
+        prev_x = px; prev_y = py;
+    }
+}
+
+// Text: port of raylib's DrawTextEx with the bundled Nunito font -- scaleFactor =
 // fontSize/baseSize, and the same proportional tracking (fontSize*0.05) the
 // raylib backend uses, so the two platforms lay out identically regardless of
 // each atlas's bake size. Draws each glyph's atlas rect at its offset.
 void gfx_text(const char* text, int x, int y, int font_size, Color c) {
-    float scale = (float)font_size / OB_FONT_BASE_SIZE;
+    float scale = (float)font_size / FONT_BASE_SIZE;
     float spacing = font_size * 0.05f;
     float pen = (float)x;
     for (const unsigned char* p = (const unsigned char*)text; *p; p++) {
         int cp = *p;
-        OBGlyph g = ob_font_glyphs[glyph_of(cp)];
+        FontGlyph g = font_glyphs[glyph_of(cp)];
         if (cp != ' ') {
             float gx = pen + g.ox * scale, gy = y + g.oy * scale;
             float gw = g.rw * scale,       gh = g.rh * scale;
-            float u0 = g.rx / (float)OB_FONT_ATLAS_W, v0 = g.ry / (float)OB_FONT_ATLAS_H;
-            float u1 = (g.rx + g.rw) / (float)OB_FONT_ATLAS_W;
-            float v1 = (g.ry + g.rh) / (float)OB_FONT_ATLAS_H;
+            float u0 = g.rx / (float)FONT_ATLAS_W, v0 = g.ry / (float)FONT_ATLAS_H;
+            float u1 = (g.rx + g.rw) / (float)FONT_ATLAS_W;
+            float v1 = (g.ry + g.rh) / (float)FONT_ATLAS_H;
             push(gx,      gy,      u0, v0, c); push(gx + gw, gy,      u1, v0, c); push(gx + gw, gy + gh, u1, v1, c);
             push(gx,      gy,      u0, v0, c); push(gx + gw, gy + gh, u1, v1, c); push(gx,      gy + gh, u0, v1, c);
         }
@@ -256,11 +379,11 @@ void gfx_text(const char* text, int x, int y, int font_size, Color c) {
 // plus inter-glyph spacing. Matches gfx_text's tracking so centering is correct.
 int gfx_measure_text(const char* text, int font_size) {
     float spacing = font_size * 0.05f;
-    float scale = (float)font_size / OB_FONT_BASE_SIZE;
+    float scale = (float)font_size / FONT_BASE_SIZE;
     float tw = 0.0f;
     int count = 0;
     for (const unsigned char* p = (const unsigned char*)text; *p; p++) {
-        OBGlyph g = ob_font_glyphs[glyph_of(*p)];
+        FontGlyph g = font_glyphs[glyph_of(*p)];
         tw += (g.adv != 0) ? (float)g.adv : (g.rw + g.ox);
         count++;
     }

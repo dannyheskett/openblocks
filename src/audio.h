@@ -1,5 +1,5 @@
-#ifndef OPENBLOCKS_AUDIO_H
-#define OPENBLOCKS_AUDIO_H
+#ifndef AUDIO_H
+#define AUDIO_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,4 +29,4 @@ void audio_unload(AudioHandle handle);
 }
 #endif
 
-#endif // OPENBLOCKS_AUDIO_H
+#endif // AUDIO_H

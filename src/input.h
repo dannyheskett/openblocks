@@ -19,6 +19,11 @@ typedef struct {
     bool hard_drop_pressed; // edge-triggered: slam to bottom (Drop button tap)
     bool pause_pressed;   // edge-triggered: Enter
 
+    // Mouse (desktop, and the web build's desktop layout): a click on a menu
+    // row chooses it.
+    int  mouse_x, mouse_y;
+    bool left_pressed;    // left button just went down
+
     // Menu / overlays
     bool menu_up;         // edge-triggered: move cursor up
     bool menu_down;       // edge-triggered: move cursor down
@@ -26,7 +31,7 @@ typedef struct {
     bool escape_pressed;  // edge-triggered: Escape
     bool any_pressed;     // any key pressed this frame (used to dismiss overlays)
 
-    // Touch (Android): a tap on a menu item selects it directly. tap_x/tap_y are
+    // Touch: a tap on a menu item selects it directly. tap_x/tap_y are
     // valid only when touch_tap is set.
     bool touch_tap;
     float tap_x, tap_y;

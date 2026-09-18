@@ -28,31 +28,17 @@ void draw_center_panel_at(int w, int h, int panel_w, int panel_h, int ts, int ss
                           int title_dy, int sub_dy, const char* title,
                           const char* subtitle, Color title_color);
 
-// Computed menu geometry + the shared menu drawer (defined in render.c). Each
-// renderer fills the layout from its own sizing.
-typedef struct {
-    int cx, px, py, panel_w, panel_h;
-    int title_size, title_y, items_y, line_h, item_fs;
-} MenuLayout;
-void draw_menu_panel(MenuLayout m, const char* title, const char* const* items,
-                     int count, int selected, int gap_before, bool capture);
-
 // Per-renderer entry points (defined in render_portrait/landscape.c), called by
 // the OB_DISPATCH macro in render.c.
 #ifdef OB_PORTRAIT
 void render_frame_portrait(const Game* game);
 void render_pause_portrait(const Game* game);
 void render_game_over_portrait(const Game* game);
-void render_menu_portrait(const char* title, const char* const* items, int count,
-                          int selected, int gap_before);
 #endif
 #ifdef OB_LANDSCAPE
-extern RenderTexture2D canvas; // created in render_init, blitted by present()
 void render_frame_landscape(const Game* game);
 void render_pause_landscape(const Game* game);
 void render_game_over_landscape(const Game* game);
-void render_menu_landscape(const char* title, const char* const* items, int count,
-                           int selected, int gap_before);
 #endif
 
 #endif // OPENBLOCKS_RENDER_INTERNAL_H

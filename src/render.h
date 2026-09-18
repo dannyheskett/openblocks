@@ -6,13 +6,14 @@
 #include "ob_types.h"
 #include <stdbool.h>
 
-// The landscape renderer draws to a fixed 640x480 off-screen canvas that
-// present() integer-scales and letterboxes into the window. These are the
-// landscape canvas dimensions only — the portrait renderer sizes itself from the
-// live screen (GetScreenWidth/Height) and does not use BASE_WIDTH/BASE_HEIGHT.
+// The landscape renderer lays its 3-column layout out in a 640x480 logical
+// space and scales it to fit the view, centred. These are the landscape logical
+// dimensions only — the portrait renderer sizes itself from the live screen
+// (GetScreenWidth/Height) and does not use BASE_WIDTH/BASE_HEIGHT.
 #define BASE_WIDTH  640
 #define BASE_HEIGHT 480
 
+// Window setup and teardown (window.c) plus the recorder's capture canvas.
 void render_init(void);
 void render_cleanup(void);
 
@@ -22,20 +23,10 @@ void render_frame(const Game* game);
 void render_pause(const Game* game);
 // Gameplay scene with a "game over" overlay on top.
 void render_game_over(const Game* game);
-// Floating menu: title plus a list of items, one highlighted. gap_before, if
-// >= 0, inserts a blank line before that item index.
+// The family menu (menu.c). gap_before, if >= 0, inserts a blank line before
+// that item index. Hit-test its rows with menu_hit_test().
 void render_menu(const char* title, const char* const* items, int count,
                  int selected, int gap_before);
-
-bool render_window_should_close(void);
-void render_toggle_fullscreen(void);
-// True while the app window holds input focus. Used to auto-pause when the app
-// is sent to the background (Android suspend/resume).
-bool render_window_focused(void);
-
-// Return the menu item index at screen point `p`, or -1 if none. Uses the item
-// rectangles captured by the last render_menu() call (Android touch menus).
-int render_menu_hit_test(Vector2 p);
 
 // Active renderer selection. Native builds have exactly one renderer, so
 // render_use_portrait() is a compile-time constant there (true on Android, false
