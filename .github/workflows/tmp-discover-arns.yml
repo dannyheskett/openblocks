@@ -1,0 +1,34 @@
+name: tmp-discover-arns
+
+# Throwaway. Reads the two AWS identifiers the workflows need, so they can be
+# stored under one name on every repo. Runs on this PR only; never merged.
+
+on:
+  pull_request:
+    paths: [".github/workflows/tmp-discover-arns.yml"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+      - name: Write both ARNs to a file
+        run: |
+          mkdir -p out
+          aws sts get-caller-identity --output json > out/identity.json
+          aws devicefarm list-projects --region us-west-2 --output json > out/projects.json || \
+            echo '{"error":"ListProjects denied"}' > out/projects.json
+          cat out/projects.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: arns
+          path: out/
