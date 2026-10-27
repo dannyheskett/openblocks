@@ -42,15 +42,14 @@ New repository secret**.)
 
 ## 3. That's it
 
-The next release (any push to `main`, or a manual `release` run) will detect the
-secret and produce `openblocks-<version>-android.aab` alongside the sideload
-APK, and `release.yml` uploads it to the Play **internal** track on its own --
-no manual step, and no download.
+Every build (`build.yml`, on each merge of `staging` into `main`) requires these
+secrets -- a missing one fails the build -- and produces
+`openblocks-<version>-android.aab` alongside the sideload APK, attached to the
+GitHub Release.
 
-Getting that build in front of the public is a separate, deliberate action:
-dispatch the `store-release` workflow, which promotes an already-uploaded
-versionCode onto the track you pick and can push the listing at the same time.
-It defaults to a dry run.
+Shipping it is a separate, deliberate action: run the `release` workflow, which
+uploads that release's AAB to the track you pick (and can push the listing in
+the same edit), then reads the track back.
 
 ## Note on Play App Signing enrollment
 
