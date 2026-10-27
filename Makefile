@@ -170,13 +170,6 @@ ANDROID_SRC     := $(filter-out src/encode_h264.c src/encode_mux.c,$(SRC))
 ANDROID_CFLAGS  := -std=c99 -Wall -Wextra -Isrc -DPLATFORM_ANDROID -fPIC \
                    -I$(RAYLIB_ANDROID)/include -I$(NATIVE_APP_GLUE)
 
-# SIMSTATS=1 builds the high-refresh validation APK: it boots straight into
-# autoplay (no menu) and logs a SIMSTATS frames/steps line to logcat for each
-# second of continuous play, which scripts/devicefarm_run.py asserts against
-# (DEVICEFARM_CHECK_SIMSTATS=1) on a real device. Never used for release builds.
-ifeq ($(SIMSTATS),1)
-ANDROID_CFLAGS += -DOB_SIMSTATS -DOB_AUTOPLAY
-endif
 # raylib wraps fopen at link time (-Wl,--wrap=fopen) so file access routes
 # through the Android asset manager; libraylib.a references __real_fopen, which
 # only exists when this flag is present. Without it, dlopen of libopenblocks.so
@@ -191,13 +184,7 @@ ANDROID_LDFLAGS := -shared -L$(RAYLIB_ANDROID)/lib -lraylib \
                    -Wl,-z,max-page-size=16384,-z,common-page-size=16384 \
                    -llog -landroid -lEGL -lGLESv2 -lOpenSLES -lm -lc -ldl
 
-# Separate object dir for SIMSTATS builds so the -D flags never mix with a
-# normal build's objects across incremental compiles.
-ifeq ($(SIMSTATS),1)
-ANDROID_OBJ_DIR := build/obj-android-simstats
-else
 ANDROID_OBJ_DIR := build/obj-android
-endif
 ANDROID_OBJ     := $(ANDROID_SRC:src/%.c=$(ANDROID_OBJ_DIR)/%.o) \
                    $(ANDROID_OBJ_DIR)/native_app_glue.o
 
@@ -317,7 +304,6 @@ $(ANDROID_AAB): export PLAY_STORE_PASS_ENV = $(PLAY_STORE_PASS)
 $(ANDROID_AAB): export PLAY_KEY_PASS_ENV   = $(PLAY_KEY_PASS)
 $(ANDROID_AAB): $(ANDROID_LIB) $(ANDROID_DEX) $(BUNDLETOOL) $(PLAY_KEYSTORE) \
                 android/AndroidManifest.xml android/res/values/styles.xml
-	@[ "$(SIMSTATS)" != "1" ] || { echo "refusing to build a Play bundle from a SIMSTATS tree"; exit 1; }
 	@rm -rf build/aab && mkdir -p build/aab/module/manifest \
 	    build/aab/module/lib/$(ANDROID_ABI) build/aab/module/dex
 	# Compile android/res, then link into a *protobuf* APK (bundletool's input).
@@ -380,8 +366,8 @@ web-serve: $(WEB_OUT)
 # the ios/ Objective-C++ files provide the Metal renderer, the platform/touch
 # layer, and the UIKit app shell. Two products:
 #   ios-sim  — Simulator .app (arm64 simulator, unsigned) for CI screenshots.
-#   ios      — device .ipa (arm64, unsigned). AWS Device Farm re-signs it with
-#              its own profile, so it needs no Apple Developer account.
+#   ios      — device .ipa (arm64). Unsigned unless IOS_SIGN_IDENTITY is set
+#              (see below), so a plain build needs no Apple Developer account.
 # The .app/.ipa are assembled by hand (clang + Info.plist + zip), no Xcode
 # project — mirroring the no-Gradle Android approach. C sources are built with
 # clang (C99); the .mm sources with clang++ (Obj-C++); linked with clang++.
@@ -398,8 +384,9 @@ IOS_BUILD_NUMBER := 1
 endif
 IOS_VERSION_NAME ?= 1.0.$(IOS_BUILD_NUMBER)
 # Signing is opt-in: set IOS_SIGN_IDENTITY (and IOS_PROFILE) to produce an
-# App Store-submittable .ipa. Unset, the build stays unsigned for Device Farm,
-# which re-signs on upload. Mirrors how the Play AAB gates on a keystore.
+# App Store-submittable .ipa. Unset, the build stays unsigned, which still
+# proves the device build compiles and links. Mirrors how the Play AAB gates
+# on a keystore.
 IOS_SIGN_IDENTITY ?=
 IOS_PROFILE       ?=
 IOS_TEAM_ID       ?=
@@ -432,8 +419,8 @@ $(IOS_SIM_APP): $(IOS_DEPS)
 
 # Device .ipa: unsigned; a .ipa is just a zip of Payload/<App>.app. Xcode injects
 # device-platform Info.plist keys that a hand-assembled bundle lacks; add the
-# ones tools require — notably CFBundleSupportedPlatforms, which AWS Device Farm
-# checks on upload ("could not find the platform value in the Info.plist").
+# ones tools require — notably CFBundleSupportedPlatforms, which upload
+# validation checks before it accepts a device bundle.
 IOS_IPA := build/openblocks.ipa
 IOS_APP_DIR := build/ios-device/Payload/$(IOS_APP_NAME).app
 ios: $(IOS_IPA)
@@ -506,7 +493,7 @@ $(IOS_IPA): $(IOS_DEPS)
 	@if [ -n "$(IOS_SIGN_IDENTITY)" ]; then \
 	    echo "[ios] built $(IOS_IPA) (signed: $(IOS_SIGN_IDENTITY), build $(IOS_BUILD_NUMBER))"; \
 	else \
-	    echo "[ios] built $(IOS_IPA) (unsigned; AWS Device Farm re-signs on upload)"; \
+	    echo "[ios] built $(IOS_IPA) (unsigned)"; \
 	fi
 
 dist-ios: $(IOS_IPA)

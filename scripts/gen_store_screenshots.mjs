@@ -20,8 +20,8 @@
 //   --chrome <path>  Chromium binary  [default: $CHROME, else the Playwright cache]
 //   --only <name>    capture a single target (play-phone|play-tablet|ios-6.9)
 //
-// Why a browser and not the real app: the maintainer has no Android device and no
-// Mac, and Device Farm returns video, not clean full-resolution stills.
+// Why a browser and not the real app: the maintainer has no Android device
+// and no Mac.
 
 import { chromium } from 'playwright-core';
 import { createServer } from 'node:http';
